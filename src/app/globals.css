@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dark, modern palette (HSL channels consumed by tailwind.config.ts) */
+  --background: 222 24% 7%;
+  --surface: 222 20% 11%;
+  --surface-hover: 222 18% 15%;
+  --border: 222 16% 20%;
+  --foreground: 210 20% 96%;
+  --muted: 215 14% 58%;
+
+  --brand: 152 62% 45%;
+  --brand-foreground: 152 60% 8%;
+
+  --success: 152 62% 45%;
+  --warning: 38 92% 55%;
+  --danger: 0 72% 58%;
+
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle radial glow on the app background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(60rem 40rem at 15% -10%, hsl(152 62% 45% / 0.07), transparent),
+    radial-gradient(50rem 40rem at 100% 0%, hsl(210 80% 50% / 0.05), transparent);
+  pointer-events: none;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-border bg-surface p-5 shadow-sm;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-brand {
+    @apply btn bg-brand text-brand-foreground hover:opacity-90;
+  }
+  .btn-ghost {
+    @apply btn border border-border bg-surface text-foreground hover:bg-surface-hover;
+  }
+  .input {
+    @apply w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground
+      outline-none placeholder:text-muted focus:border-brand/60 focus:ring-2 focus:ring-brand/20;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted;
+  }
+}
+
+/* Thin scrollbars in chat / scroll areas */
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 8px;
+}
