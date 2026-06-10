@@ -29,6 +29,12 @@ create trigger daily_checkins_set_updated_at
 
 alter table public.daily_checkins enable row level security;
 
+-- drop-if-exists guards make this migration safe to re-run (idempotent).
+drop policy if exists "checkins_select_own" on public.daily_checkins;
+drop policy if exists "checkins_insert_own" on public.daily_checkins;
+drop policy if exists "checkins_update_own" on public.daily_checkins;
+drop policy if exists "checkins_delete_own" on public.daily_checkins;
+
 create policy "checkins_select_own" on public.daily_checkins
   for select using (auth.uid() = user_id);
 create policy "checkins_insert_own" on public.daily_checkins
