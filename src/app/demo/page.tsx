@@ -22,6 +22,7 @@ import { SetVolumePanel } from "@/components/set-volume";
 import { NextSessionCard } from "@/components/next-session";
 import { RecordsTable } from "@/components/records-table";
 import { StrengthStandards } from "@/components/strength-standards";
+import { TrackOnMount } from "@/components/analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,7 @@ export default function DemoPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+      <TrackOnMount event="demo_viewed" />
       {/* Header */}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <Link href="/" className="flex items-center gap-2 font-semibold">

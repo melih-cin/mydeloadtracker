@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { MobileNav, NavBar } from "@/components/nav-bar";
+import { FeedbackWidget } from "@/components/feedback-widget";
+import { IdentifyUser } from "@/components/analytics";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
@@ -18,6 +20,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
         <MobileNav />
       </div>
+      <FeedbackWidget />
+      <IdentifyUser id={user.id} email={user.email} />
     </div>
   );
 }

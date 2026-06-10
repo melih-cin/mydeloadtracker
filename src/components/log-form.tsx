@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { capture } from "@/lib/track";
 import { RestTimer } from "@/components/rest-timer";
 import type { Exercise, Units } from "@/lib/types";
 
@@ -198,6 +199,7 @@ export function LogForm({
         .insert(rows.map((r) => ({ ...r, session_id: targetSessionId, user_id: user.id })));
       if (setErr) throw new Error(setErr.message);
 
+      capture("workout_logged", { sets: rows.length, exercises: entries.length, edit: isEdit });
       setSaved(true);
       setTimeout(() => router.push(isEdit ? "/history" : "/dashboard"), 700);
       router.refresh();

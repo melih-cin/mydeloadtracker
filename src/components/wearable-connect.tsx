@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw, Watch } from "lucide-react";
+import { capture } from "@/lib/track";
 
 export function WearableConnect({
   configured,
@@ -25,6 +26,10 @@ export function WearableConnect({
         : null,
   );
   const [isError, setIsError] = useState(status === "error");
+
+  useEffect(() => {
+    if (status === "connected") capture("wearable_connected", { provider: "oura" });
+  }, [status]);
 
   async function syncNow() {
     setSyncing(true);

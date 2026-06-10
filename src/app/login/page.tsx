@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Activity, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { capture } from "@/lib/track";
 
 function LoginForm() {
   const router = useRouter();
@@ -34,6 +35,7 @@ function LoginForm() {
           options: { data: { full_name: fullName } },
         });
         if (error) throw error;
+        capture("signup_completed");
         // If email confirmation is disabled, a session exists immediately.
         const { data } = await supabase.auth.getSession();
         if (data.session) {

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Brain, Loader2 } from "lucide-react";
+import { capture } from "@/lib/track";
 
 interface Message {
   role: "user" | "assistant";
@@ -33,6 +34,7 @@ export function CoachChat() {
     setMessages([...next, { role: "assistant", content: "" }]);
     setInput("");
     setStreaming(true);
+    capture("coach_message_sent", { turn: next.filter((m) => m.role === "user").length });
 
     try {
       const res = await fetch("/api/coach", {

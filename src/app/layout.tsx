@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
+import { PostHogInit } from "@/components/analytics";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.variable} font-sans`}>
         {children}
         <PwaRegister />
+        <PostHogInit />
       </body>
     </html>
   );

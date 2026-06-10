@@ -18,6 +18,7 @@ import { NextSessionCard } from "@/components/next-session";
 import { RecordsTable } from "@/components/records-table";
 import { CheckinCard } from "@/components/checkin-card";
 import { SeedButton } from "@/components/seed-button";
+import { TrackOnMount } from "@/components/analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <TrackOnMount event="next_session_viewed" />
+      {deload.recommended && <TrackOnMount event="deload_alert_shown" />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
