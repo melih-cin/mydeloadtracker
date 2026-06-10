@@ -13,11 +13,13 @@ import { buildVolumeReport } from "@/lib/analytics/volume";
 import { buildSetVolume } from "@/lib/analytics/setVolume";
 import { buildRecords } from "@/lib/analytics/records";
 import { buildProgressReport } from "@/lib/analytics/progress";
+import { buildNextSessions } from "@/lib/analytics/progression";
 import { isStandardLift } from "@/lib/analytics/standards";
 import { DeloadAlert } from "@/components/deload-alert";
 import { ReadinessGauge } from "@/components/readiness-gauge";
 import { VolumeChart } from "@/components/volume-chart";
 import { SetVolumePanel } from "@/components/set-volume";
+import { NextSessionCard } from "@/components/next-session";
 import { RecordsTable } from "@/components/records-table";
 import { StrengthStandards } from "@/components/strength-standards";
 
@@ -47,6 +49,7 @@ export default function DemoPage() {
   const setVolume = buildSetVolume(sets, 4, 8, now);
   const records = buildRecords(sets);
   const progress = buildProgressReport(sets, 4, now);
+  const nextSessions = buildNextSessions(sets, { units: SAMPLE_UNITS, deload: deload.recommended });
 
   const tonnageTrend = {
     muscleGroups: ["Total"],
@@ -115,6 +118,17 @@ export default function DemoPage() {
               <div className="text-sm text-muted">{s.label}</div>
             </div>
           ))}
+        </div>
+
+        <div className="card">
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="font-semibold">Your next session</h2>
+            <span className="text-xs text-muted">auto-progression</span>
+          </div>
+          <p className="mb-4 text-xs text-muted">
+            Concrete targets from the last numbers + RPE — this athlete is in a deload, so everything backs off.
+          </p>
+          <NextSessionCard sessions={nextSessions} units={SAMPLE_UNITS} />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-5">

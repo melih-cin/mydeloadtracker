@@ -5,12 +5,27 @@ import { PwaRegister } from "@/components/pwa-register";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
+const DESCRIPTION =
+  "Log your training and get a daily readiness score, deload alerts, StrengthLevel-style standards, and an AI coach that reasons from your real numbers.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL("https://mydeloadtracker.vercel.app"),
   applicationName: "MyDeloadTracker",
-  title: "MyDeloadTracker — AI progressive overload coach",
-  description:
-    "Log your training, track progressive overload with estimated 1RM, and get AI-driven deload recommendations.",
+  title: "MyDeloadTracker — AI strength coach that knows when to deload",
+  description: DESCRIPTION,
   manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: "MyDeloadTracker — AI strength coach that knows when to deload",
+    description: DESCRIPTION,
+    url: "/",
+    siteName: "MyDeloadTracker",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "MyDeloadTracker — AI strength coach that knows when to deload",
+    description: DESCRIPTION,
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

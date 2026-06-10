@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { RestTimer } from "@/components/rest-timer";
 import type { Exercise, Units } from "@/lib/types";
 
 interface SetEntry {
@@ -208,6 +209,8 @@ export function LogForm({
 
   return (
     <div className="space-y-5">
+      <RestTimer />
+
       <div className="card">
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

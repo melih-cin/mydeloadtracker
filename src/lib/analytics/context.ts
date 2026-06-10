@@ -10,6 +10,7 @@ import { computeReadiness } from "./readiness";
 import { buildVolumeReport } from "./volume";
 import { buildSetVolume } from "./setVolume";
 import { buildRecords } from "./records";
+import { buildNextSessions } from "./progression";
 import { overallStrength } from "./standards";
 import { weekLabel } from "./dates";
 
@@ -107,6 +108,19 @@ export function buildCoachContext(
         c.hrv != null ? `HRV ${c.hrv}` : null,
       ].filter(Boolean);
       lines.push(`  ${c.date}: ${bits.join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  // Auto-progression targets (the app's rule-based suggestion; refine, don't replace)
+  const nextSessions = buildNextSessions(sets, { units, deload: deload.recommended });
+  const majorNext = nextSessions.filter((n) => n.isMajor);
+  if (majorNext.length) {
+    lines.push("SUGGESTED NEXT SESSIONS (auto-progression — refine these):");
+    for (const n of majorNext) {
+      lines.push(
+        `  ${n.exerciseName}: last ${n.last.weight}${units}x${n.last.reps}${n.last.rpe != null ? ` @RPE${n.last.rpe}` : ""} -> ${n.action.toUpperCase()} ${n.target.weight}${units}x${n.target.reps}x${n.target.sets}`,
+      );
     }
     lines.push("");
   }

@@ -9,10 +9,12 @@ import { buildVolumeReport } from "@/lib/analytics/volume";
 import { buildSetVolume } from "@/lib/analytics/setVolume";
 import { buildRecords } from "@/lib/analytics/records";
 import { buildProgressReport } from "@/lib/analytics/progress";
+import { buildNextSessions } from "@/lib/analytics/progression";
 import { DeloadAlert } from "@/components/deload-alert";
 import { ReadinessGauge } from "@/components/readiness-gauge";
 import { VolumeChart } from "@/components/volume-chart";
 import { SetVolumePanel } from "@/components/set-volume";
+import { NextSessionCard } from "@/components/next-session";
 import { RecordsTable } from "@/components/records-table";
 import { CheckinCard } from "@/components/checkin-card";
 import { SeedButton } from "@/components/seed-button";
@@ -69,6 +71,7 @@ export default async function DashboardPage() {
   };
   const records = buildRecords(sets);
   const progress = buildProgressReport(sets, 4);
+  const nextSessions = buildNextSessions(sets, { units, deload: deload.recommended });
 
   const totalVolume = volume.rows.reduce((a, r) => a + r.total, 0);
   const progressing = progress.filter((p) => p.status === "progressing").length;
@@ -114,6 +117,17 @@ export default async function DashboardPage() {
             <div className="text-sm text-muted">{s.label}</div>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="font-semibold">Your next session</h2>
+          <span className="text-xs text-muted">auto-progression</span>
+        </div>
+        <p className="mb-4 text-xs text-muted">
+          Targets from your last numbers + RPE. {deload.recommended ? "Deload week — everything backs off." : "Earn load when it's easy; hold and chase reps when it's hard."}
+        </p>
+        <NextSessionCard sessions={nextSessions} units={units} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
