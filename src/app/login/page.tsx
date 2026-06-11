@@ -39,7 +39,8 @@ function LoginForm() {
         // If email confirmation is disabled, a session exists immediately.
         const { data } = await supabase.auth.getSession();
         if (data.session) {
-          router.push(redirectTo);
+          // New users go straight into onboarding, not the empty dashboard.
+          router.push("/onboarding");
           router.refresh();
         } else {
           setInfo("Check your email to confirm your account, then sign in.");

@@ -38,16 +38,22 @@ export default async function DashboardPage() {
       <div className="grid min-h-[60vh] place-items-center">
         <div className="card max-w-md text-center">
           <Dumbbell className="mx-auto mb-3 h-8 w-8 text-brand" />
-          <h1 className="text-xl font-semibold">No training logged yet</h1>
+          <h1 className="text-xl font-semibold">Welcome — let&apos;s get you set up</h1>
           <p className="mt-2 text-sm text-muted">
-            Log your first session, or load some demo data to explore progressive-overload
-            tracking, the deload detector, and the AI coach.
+            Tell us your main lifts and we&apos;ll instantly rank your strength and give you your
+            first next-session target. Takes about a minute.
           </p>
           <div className="mt-5 flex flex-col items-center gap-3">
-            <SeedButton />
-            <Link href="/log" className="text-sm text-muted hover:text-foreground">
-              or log a workout manually →
+            <Link href="/onboarding" className="btn-brand px-6 py-2.5">
+              Set up in 60 seconds →
             </Link>
+            <div className="flex items-center gap-3 text-sm text-muted">
+              <SeedButton />
+              <span>·</span>
+              <Link href="/log" className="hover:text-foreground">
+                log manually
+              </Link>
+            </div>
           </div>
         </div>
       </div>
