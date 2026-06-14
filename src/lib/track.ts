@@ -29,7 +29,8 @@ export type TrackEvent =
   | "next_session_viewed"
   | "coach_message_sent"
   | "wearable_connected"
-  | "demo_viewed";
+  | "demo_viewed"
+  | "bar_scanned";
 
 export function capture(event: TrackEvent, props?: Record<string, unknown>): void {
   if (!enabled()) return;

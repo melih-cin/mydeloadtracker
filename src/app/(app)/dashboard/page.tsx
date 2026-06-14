@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Dumbbell, Flame, TrendingUp, Trophy } from "lucide-react";
+import { Dumbbell, Flame, ScanLine, TrendingUp, Trophy } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCheckins, getProfile, getTrainingSets } from "@/lib/data";
 import { todayKey } from "@/lib/analytics/dates";
@@ -104,10 +104,16 @@ export default async function DashboardPage() {
             {profile?.full_name ? `${profile.full_name}'s training` : "Your training"} at a glance.
           </p>
         </div>
-        <Link href="/log" className="btn-brand max-sm:hidden">
-          <Dumbbell className="h-4 w-4" />
-          Log workout
-        </Link>
+        <div className="flex gap-2 max-sm:hidden">
+          <Link href="/scan" className="btn-ghost">
+            <ScanLine className="h-4 w-4" />
+            Scan the bar
+          </Link>
+          <Link href="/log" className="btn-brand">
+            <Dumbbell className="h-4 w-4" />
+            Log workout
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

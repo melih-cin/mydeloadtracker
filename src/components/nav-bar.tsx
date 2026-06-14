@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LineChart,
   LogOut,
+  ScanLine,
   Settings,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +18,7 @@ import { createClient } from "@/lib/supabase/client";
 const LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/log", label: "Log workout", icon: Dumbbell },
+  { href: "/scan", label: "Scan", icon: ScanLine },
   { href: "/history", label: "History", icon: History },
   { href: "/progress", label: "Progress", icon: LineChart },
   { href: "/coach", label: "AI coach", icon: Brain },
