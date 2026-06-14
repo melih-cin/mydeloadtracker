@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Plus, Search, Trash2 } from "lucide-react";
+import { Check, Loader2, Plus, Search, Trash2, Trophy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
+import { estimate1RM } from "@/lib/analytics/epley";
 import { RestTimer } from "@/components/rest-timer";
 import type { Exercise, Units } from "@/lib/types";
 
@@ -67,6 +68,7 @@ export function LogForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [prs, setPrs] = useState<string[]>([]);
 
   const exerciseById = useMemo(
     () => new Map(exercises.map((e) => [e.id, e])),
@@ -199,9 +201,40 @@ export function LogForm({
         .insert(rows.map((r) => ({ ...r, session_id: targetSessionId, user_id: user.id })));
       if (setErr) throw new Error(setErr.message);
 
-      capture("workout_logged", { sets: rows.length, exercises: entries.length, edit: isEdit });
+      // PR detection (new sessions only): did a lift beat the athlete's prior best e1RM?
+      let prNames: string[] = [];
+      if (!isEdit) {
+        const newBest = new Map<string, number>();
+        for (const r of rows) {
+          const e = estimate1RM(r.weight, r.reps);
+          if (e > (newBest.get(r.exercise_id) ?? 0)) newBest.set(r.exercise_id, e);
+        }
+        const { data: prior } = await supabase
+          .from("workout_sets")
+          .select("exercise_id, reps, weight")
+          .eq("user_id", user.id)
+          .in("exercise_id", [...newBest.keys()])
+          .neq("session_id", targetSessionId);
+        const priorBest = new Map<string, number>();
+        for (const p of prior ?? []) {
+          const e = estimate1RM(Number(p.weight), p.reps);
+          if (e > (priorBest.get(p.exercise_id) ?? 0)) priorBest.set(p.exercise_id, e);
+        }
+        for (const [exId, best] of newBest) {
+          const prev = priorBest.get(exId);
+          if (prev != null && best > prev + 0.01) prNames.push(exerciseById.get(exId)?.name ?? "a lift");
+        }
+        setPrs(prNames);
+      }
+
+      capture("workout_logged", {
+        sets: rows.length,
+        exercises: entries.length,
+        edit: isEdit,
+        prs: prNames.length,
+      });
       setSaved(true);
-      setTimeout(() => router.push(isEdit ? "/history" : "/dashboard"), 700);
+      setTimeout(() => router.push(isEdit ? "/history" : "/dashboard"), prNames.length ? 2000 : 700);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save workout.");
@@ -411,11 +444,16 @@ export function LogForm({
       {error && <p className="text-sm text-danger">{error}</p>}
 
       <div className="flex items-center justify-end gap-3">
-        {saved && (
-          <span className="flex items-center gap-1.5 text-sm text-success">
-            <Check className="h-4 w-4" /> Saved!
-          </span>
-        )}
+        {saved &&
+          (prs.length > 0 ? (
+            <span className="flex items-center gap-1.5 text-sm font-semibold text-warning">
+              <Trophy className="h-4 w-4" /> New PR: {prs.join(", ")}! 🎉
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-sm text-success">
+              <Check className="h-4 w-4" /> Saved!
+            </span>
+          ))}
         <button
           onClick={save}
           disabled={saving || saved || entries.length === 0}

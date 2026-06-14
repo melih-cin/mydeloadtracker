@@ -56,7 +56,9 @@ export default async function OnboardingPage() {
 
       <OnboardingForm
         exercises={exercises}
-        initialUnits={profile?.units ?? "kg"}
+        // New users (no bodyweight set yet) default to lb to match the demo and the
+        // US-heavy launch audience; returning users keep their saved unit.
+        initialUnits={profile?.bodyweight != null ? profile.units : "lb"}
         initialBodyweight={profile?.bodyweight ?? null}
         initialSex={profile?.sex ?? null}
       />
