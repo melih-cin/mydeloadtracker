@@ -92,7 +92,7 @@ export function NavBar({ email }: { email: string | null }) {
 export function MobileNav() {
   const pathname = usePathname();
   return (
-    <nav className="sticky bottom-0 z-10 flex border-t border-border bg-surface md:hidden">
+    <nav className="sticky bottom-0 z-10 flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
       {LINKS.map((link) => {
         const active = pathname === link.href;
         return (

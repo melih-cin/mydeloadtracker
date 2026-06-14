@@ -29,6 +29,12 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
+  /* Respect the notch / Dynamic Island when installed as a full-screen PWA.
+     These insets are 0 in a normal browser and on desktop, so this only nudges
+     content clear of the island/home-indicator on standalone iOS. */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* Subtle radial glow on the app background */
