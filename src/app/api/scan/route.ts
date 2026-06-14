@@ -16,6 +16,10 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
 const PROMPT = `You are a computer-vision module in a strength-training app. The user pointed their camera at their setup. Read it and report what's loaded, using the report_lift tool.
 
+How to identify the exercise:
+- Use environmental context (squat rack, bench, lat-pulldown machine), the lifter's body position and grip, and — if multiple frames are provided — the MOTION between frames.
+- Motion cues: a bar travelling vertically past the shoulders/overhead = squat or press; a hip hinge with the bar near the shins/thighs = deadlift / RDL / row; a horizontal press lying down = bench press.
+
 How to read the weight:
 - Standard Olympic barbell = 20 kg (men's) or 15 kg (women's). Assume 20 kg unless it's clearly a thinner/shorter bar.
 - Olympic plates are color/size coded (kg): 25=red, 20=blue, 15=yellow, 10=green, 5=white/grey, 2.5=red(small), 1.25=chrome. Count the plates on ONE side, then total = (sum of one side) × 2 + bar.
@@ -53,17 +57,28 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  let image: string | undefined;
+  type MediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  let body: { image?: string; images?: string[] };
   try {
-    image = (await req.json()).image;
+    body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  const m = typeof image === "string" ? image.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/) : null;
-  if (!m) return NextResponse.json({ error: "Send a JPEG/PNG/WebP image as a data URL." }, { status: 400 });
-  const mediaType = m[1] as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-  const data = m[2];
-  if (data.length > 8_000_000) return NextResponse.json({ error: "Image too large." }, { status: 413 });
+  const raw = Array.isArray(body.images) ? body.images : body.image ? [body.image] : [];
+  const frames: { media_type: MediaType; data: string }[] = [];
+  let totalBytes = 0;
+  for (const img of raw.slice(0, 10)) {
+    const m = typeof img === "string" ? img.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/) : null;
+    if (!m) continue;
+    totalBytes += m[2].length;
+    frames.push({ media_type: m[1] as MediaType, data: m[2] });
+  }
+  if (frames.length === 0) {
+    return NextResponse.json({ error: "Send a JPEG/PNG/WebP image." }, { status: 400 });
+  }
+  if (totalBytes > 12_000_000) {
+    return NextResponse.json({ error: "Images too large." }, { status: 413 });
+  }
 
   // Bias the exercise guess toward what this athlete actually trains — a still
   // photo is often ambiguous (a racked bar could be squat / front squat / press),
@@ -76,8 +91,12 @@ export async function POST(req: Request) {
     .slice(0, 8)
     .map(([n]) => n);
   const hint = usual.length
-    ? `\n\nThis athlete most often trains: ${usual.join(", ")}. When the exercise is ambiguous from the photo, prefer one of these and set confidence to medium.`
+    ? `\n\nThis athlete most often trains: ${usual.join(", ")}. When the exercise is ambiguous, prefer one of these.`
     : "";
+  const frameNote =
+    frames.length > 1
+      ? `\n\nThese ${frames.length} images are sequential frames of ONE set captured over a few seconds (earliest first). Use the motion across them to identify the exercise and COUNT the reps performed.`
+      : "";
 
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -90,8 +109,11 @@ export async function POST(req: Request) {
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: mediaType, data } },
-            { type: "text", text: PROMPT + hint },
+            ...frames.map((f) => ({
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: f.media_type, data: f.data },
+            })),
+            { type: "text" as const, text: PROMPT + hint + frameNote },
           ],
         },
       ],

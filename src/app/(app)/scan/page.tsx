@@ -14,8 +14,10 @@ export default async function ScanPage() {
       <div>
         <h1 className="text-2xl font-semibold">Scan the bar</h1>
         <p className="text-sm text-muted">
-          Take a photo of your loaded barbell — the AI reads the plates, figures out the weight, and
-          logs the set. Hands-light. (This is the phone version of the glasses experience.)
+          Snap a photo to read the weight, or <span className="text-foreground">record a rep</span> —
+          the AI reads the load <span className="text-foreground">and</span> uses the motion to
+          identify the lift and count your reps, then logs it. (This is the phone version of the
+          glasses experience.)
         </p>
       </div>
       <BarScanner exercises={exercises} units={units} />

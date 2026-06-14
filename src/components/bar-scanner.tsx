@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Check, Loader2, ScanLine, Sparkles } from "lucide-react";
+import { Camera, Check, Loader2, ScanLine, Sparkles, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
 import type { Exercise, Units } from "@/lib/types";
@@ -20,8 +20,10 @@ interface Reading {
 
 const LB = 2.20462;
 const round5 = (n: number) => Math.round(n / 5) * 5;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const CONF: Record<string, string> = { high: "text-success", medium: "text-warning", low: "text-danger" };
 
-/** Downscale + JPEG-compress a captured photo so the upload is small + fast. */
+/** Downscale + JPEG-compress a still photo file for upload. */
 function fileToDataUrl(file: File, maxDim = 1024, quality = 0.8): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -31,13 +33,13 @@ function fileToDataUrl(file: File, maxDim = 1024, quality = 0.8): Promise<string
       const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
       const w = Math.max(1, Math.round(img.width * scale));
       const h = Math.max(1, Math.round(img.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d");
       if (!ctx) return reject(new Error("no canvas"));
       ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+      resolve(c.toDataURL("image/jpeg", quality));
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -47,71 +49,147 @@ function fileToDataUrl(file: File, maxDim = 1024, quality = 0.8): Promise<string
   });
 }
 
-const CONF: Record<string, string> = {
-  high: "text-success",
-  medium: "text-warning",
-  low: "text-danger",
-};
+/** Grab the current live-video frame as a downscaled JPEG data URL. */
+function grabFrame(video: HTMLVideoElement, maxDim = 640, quality = 0.55): string | null {
+  if (!video.videoWidth) return null;
+  const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
+  const w = Math.round(video.videoWidth * scale);
+  const h = Math.round(video.videoHeight * scale);
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, w, h);
+  return c.toDataURL("image/jpeg", quality);
+}
 
 export function BarScanner({ exercises, units }: { exercises: Exercise[]; units: Units }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const [live, setLive] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+
   const [preview, setPreview] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [reading, setReading] = useState<Reading | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // editable log fields, pre-filled from the reading
   const [exerciseId, setExerciseId] = useState("");
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("5");
   const [logging, setLogging] = useState(false);
   const [logged, setLogged] = useState(false);
 
-  function matchExercise(name: string | undefined): string {
-    if (!name) return "";
-    const n = name.toLowerCase();
-    const exact = exercises.find((e) => e.name.toLowerCase() === n);
-    if (exact) return exact.id;
-    const partial = exercises.find((e) => e.name.toLowerCase().includes(n) || n.includes(e.name.toLowerCase()));
-    return partial?.id ?? "";
+  useEffect(() => () => stopLive(), []); // cleanup camera on unmount
+
+  function stopLive() {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setLive(false);
+    setRecording(false);
+    setCountdown(0);
   }
 
-  async function onPhoto(file: File) {
+  function matchExercise(name?: string): string {
+    if (!name) return "";
+    const n = name.toLowerCase();
+    return (
+      exercises.find((e) => e.name.toLowerCase() === n)?.id ??
+      exercises.find((e) => e.name.toLowerCase().includes(n) || n.includes(e.name.toLowerCase()))?.id ??
+      ""
+    );
+  }
+
+  function applyReading(r: Reading) {
+    setReading(r);
+    if (r.detected) {
+      setExerciseId(matchExercise(r.exercise));
+      const kg = r.total_weight_kg ?? 0;
+      setWeight(kg > 0 ? String(units === "lb" ? round5(kg * LB) : kg) : "");
+      setReps(r.reps && r.reps > 0 ? String(r.reps) : "5");
+    }
+  }
+
+  async function analyze(images: string[]) {
     setError(null);
     setReading(null);
     setLogged(false);
-    let dataUrl: string;
-    try {
-      dataUrl = await fileToDataUrl(file);
-    } catch {
-      setError("Couldn't read that photo. Try again.");
-      return;
-    }
-    setPreview(dataUrl);
     setAnalyzing(true);
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: dataUrl }),
+        body: JSON.stringify({ images }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Scan failed.");
       const r = json.reading as Reading;
-      setReading(r);
-      capture("bar_scanned", { detected: r.detected, confidence: r.confidence, equipment: r.equipment });
-      if (r.detected) {
-        setExerciseId(matchExercise(r.exercise));
-        const kg = r.total_weight_kg ?? 0;
-        setWeight(kg > 0 ? String(units === "lb" ? round5(kg * LB) : kg) : "");
-        setReps(r.reps && r.reps > 0 ? String(r.reps) : "5");
-      }
+      capture("bar_scanned", { detected: r.detected, confidence: r.confidence, frames: images.length });
+      applyReading(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan failed.");
     } finally {
       setAnalyzing(false);
     }
+  }
+
+  async function onPhoto(file: File) {
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setPreview(dataUrl);
+      await analyze([dataUrl]);
+    } catch {
+      setError("Couldn't read that photo. Try again.");
+    }
+  }
+
+  async function startLive() {
+    setError(null);
+    setReading(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setLive(true);
+      // wait a tick for the <video> to mount, then attach
+      await sleep(0);
+      const v = videoRef.current;
+      if (v) {
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+      }
+    } catch {
+      setError("Couldn't open the camera. Take a photo instead, or check camera permissions.");
+      stopLive();
+    }
+  }
+
+  async function recordSet() {
+    const v = videoRef.current;
+    if (!v) return;
+    setRecording(true);
+    for (let n = 3; n >= 1; n--) {
+      setCountdown(n);
+      await sleep(650);
+    }
+    setCountdown(0);
+    const frames: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const f = grabFrame(v);
+      if (f) frames.push(f);
+      await sleep(450); // ~3.6s of motion
+    }
+    setPreview(frames[frames.length - 1] ?? null);
+    stopLive();
+    if (frames.length >= 2) await analyze(frames);
+    else setError("Didn't catch the frames — try again in better light.");
   }
 
   async function logSet() {
@@ -168,35 +246,78 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
         }}
       />
 
-      {/* Capture button / preview */}
-      <button
-        onClick={() => fileRef.current?.click()}
-        className="card flex w-full flex-col items-center gap-2 border-dashed py-10 text-center transition-colors hover:bg-surface-hover"
-      >
-        {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Your setup" className="max-h-56 rounded-xl object-contain" />
-        ) : (
-          <>
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-brand/15 text-brand">
-              <Camera className="h-6 w-6" />
+      {/* LIVE CAMERA */}
+      {live && (
+        <div className="card relative overflow-hidden p-0">
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            autoPlay
+            className="aspect-[3/4] w-full bg-black object-cover sm:aspect-video"
+          />
+          {countdown > 0 && (
+            <div className="absolute inset-0 grid place-items-center bg-black/40 text-6xl font-bold text-white">
+              {countdown}
+            </div>
+          )}
+          {recording && countdown === 0 && (
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-danger/90 px-2.5 py-1 text-xs font-medium text-white">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" /> recording — do a rep
+            </div>
+          )}
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-3">
+            <button onClick={stopLive} className="rounded-lg bg-white/15 px-3 py-2 text-sm text-white">
+              <X className="h-4 w-4" />
+            </button>
+            <button
+              onClick={recordSet}
+              disabled={recording}
+              className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-60"
+            >
+              {recording ? "Recording…" : "Record a set"}
+            </button>
+            <span className="w-9" />
+          </div>
+        </div>
+      )}
+
+      {/* CHOOSE (photo or video) */}
+      {!live && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="card flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors hover:bg-surface-hover"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brand">
+              <Camera className="h-5 w-5" />
             </span>
-            <span className="font-medium">Point your camera at the loaded bar</span>
-            <span className="text-xs text-muted">Tap to take a photo — we&apos;ll read the weight</span>
-          </>
-        )}
-      </button>
-      {preview && (
-        <button onClick={() => fileRef.current?.click()} className="btn-ghost w-full">
-          <Camera className="h-4 w-4" /> Retake
-        </button>
+            <span className="font-medium">Take a photo</span>
+            <span className="text-xs text-muted">Reads the weight</span>
+          </button>
+          <button
+            onClick={startLive}
+            className="card flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors hover:bg-surface-hover"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brand">
+              <Video className="h-5 w-5" />
+            </span>
+            <span className="font-medium">Record a rep</span>
+            <span className="text-xs text-muted">Reads weight + reps + the lift</span>
+          </button>
+        </div>
+      )}
+
+      {preview && !live && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={preview} alt="Captured" className="mx-auto max-h-48 rounded-xl object-contain" />
       )}
 
       {analyzing && (
         <div className="card flex items-center gap-3 text-sm">
           <Loader2 className="h-5 w-5 animate-spin text-brand" />
           <span className="flex items-center gap-1.5">
-            <ScanLine className="h-4 w-4 text-brand" /> Reading the plates…
+            <ScanLine className="h-4 w-4 text-brand" /> Reading the bar…
           </span>
         </div>
       )}
