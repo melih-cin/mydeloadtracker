@@ -95,7 +95,7 @@ export async function POST(req: Request) {
     : "";
   const frameNote =
     frames.length > 1
-      ? `\n\nThese ${frames.length} images are sequential frames of ONE set captured over a few seconds (earliest first). Use the motion across them to identify the exercise and COUNT the reps performed.`
+      ? `\n\nThese ${frames.length} images are evenly-spaced frames of ONE set, from start to finish (earliest first). Use the motion across them to identify the exercise, and count each full rep (a complete down-up or up-down cycle). Report your best rep count even if some reps fall between frames.`
       : "";
 
   try {

@@ -69,10 +69,15 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
   const fileRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const bufRef = useRef<string[]>([]);
+  const tickRef = useRef(0);
+  const everyNthRef = useRef(1);
+  const intervalRef = useRef<number | null>(null);
 
   const [live, setLive] = useState(false);
   const [recording, setRecording] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
   const [preview, setPreview] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -88,11 +93,16 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
   useEffect(() => () => stopLive(), []); // cleanup camera on unmount
 
   function stopLive() {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setLive(false);
     setRecording(false);
     setCountdown(0);
+    setElapsed(0);
   }
 
   function matchExercise(name?: string): string {
@@ -171,25 +181,48 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
     }
   }
 
-  async function recordSet() {
+  // Record an arbitrary-length set. We sample frames continuously but keep a
+  // BOUNDED, evenly-spaced buffer (≤16) that always spans the whole recording —
+  // so a 5-second single and a 60-second 20-rep set both send a fixed, affordable
+  // number of frames covering the entire movement. (This is the phone version of
+  // the on-device "process the stream, not a fixed clip" model — see below.)
+  async function startRecording() {
     const v = videoRef.current;
     if (!v) return;
+    setError(null);
     setRecording(true);
     for (let n = 3; n >= 1; n--) {
       setCountdown(n);
       await sleep(650);
     }
     setCountdown(0);
-    const frames: string[] = [];
-    for (let i = 0; i < 8; i++) {
+    bufRef.current = [];
+    tickRef.current = 0;
+    everyNthRef.current = 1;
+    const start = Date.now();
+    intervalRef.current = window.setInterval(() => {
+      const secs = (Date.now() - start) / 1000;
+      setElapsed(Math.floor(secs));
+      if (secs > 90) return finishRecording(); // hard safety cap
+      tickRef.current += 1;
+      if (tickRef.current % everyNthRef.current !== 0) return;
       const f = grabFrame(v);
-      if (f) frames.push(f);
-      await sleep(450); // ~3.6s of motion
-    }
+      if (f) bufRef.current.push(f);
+      if (bufRef.current.length >= 16) {
+        // halve to every-other frame + halve the sample rate → stays bounded and
+        // evenly spaced across however long the set runs.
+        bufRef.current = bufRef.current.filter((_, i) => i % 2 === 0);
+        everyNthRef.current *= 2;
+      }
+    }, 500);
+  }
+
+  function finishRecording() {
+    const frames = [...bufRef.current];
+    stopLive(); // clears the interval + stops the camera
     setPreview(frames[frames.length - 1] ?? null);
-    stopLive();
-    if (frames.length >= 2) await analyze(frames);
-    else setError("Didn't catch the frames — try again in better light.");
+    if (frames.length >= 2) void analyze(frames);
+    else setError("Didn't catch enough of the set — try again in better light.");
   }
 
   async function logSet() {
@@ -262,21 +295,30 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
             </div>
           )}
           {recording && countdown === 0 && (
-            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-danger/90 px-2.5 py-1 text-xs font-medium text-white">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-white" /> recording — do a rep
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-danger/90 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" /> recording {elapsed}s — do your set
             </div>
           )}
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-3">
-            <button onClick={stopLive} className="rounded-lg bg-white/15 px-3 py-2 text-sm text-white">
+            <button onClick={stopLive} className="rounded-lg bg-white/15 px-3 py-2 text-sm text-white" aria-label="Cancel">
               <X className="h-4 w-4" />
             </button>
-            <button
-              onClick={recordSet}
-              disabled={recording}
-              className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-60"
-            >
-              {recording ? "Recording…" : "Record a set"}
-            </button>
+            {recording && countdown === 0 ? (
+              <button
+                onClick={finishRecording}
+                className="rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white"
+              >
+                Stop &amp; analyze
+              </button>
+            ) : (
+              <button
+                onClick={startRecording}
+                disabled={recording}
+                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-60"
+              >
+                Record a set
+              </button>
+            )}
             <span className="w-9" />
           </div>
         </div>
