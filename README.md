@@ -30,6 +30,12 @@ MyDeloadTracker answers it. From the sets you'd log anyway, it figures out when 
 - **Wearable sync.** Connect an Oura ring and it pulls your HRV, resting heart rate, and sleep on its own.
 - **Everything else you'd expect.** Daily recovery logging (sleep, soreness, motivation, energy), PR celebrations, a rest timer, a searchable library of 200 plus exercises, kg or lb, and an installable app that respects the iPhone's Dynamic Island.
 
+## What it looks like
+
+![The demo dashboard](docs/screenshots/demo-readiness.png)
+
+The public demo runs on a sample athlete who is overreaching: a deload alert with the exact signals that fired, and a readiness score you can read factor by factor.
+
 ## Spotlight: the bar scanner
 
 This is the one that makes people lean in.
