@@ -1,88 +1,108 @@
 # MyDeloadTracker
 
-An AI fitness coaching web app focused on **progressive overload tracking** and
-**deload recommendations**. Log your training, see estimated-1RM trends per lift,
-get a data-driven deload alert when fatigue stacks up, and chat with an AI coach
-that reasons from your actual numbers.
+![MyDeloadTracker](docs/banner.png)
 
-Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**,
-**Supabase** (Postgres + Auth), and the **Anthropic Claude API**.
+An AI strength training coach that tells you when to deload.
 
-## Features
+**[Try the live app](https://mydeloadtracker.vercel.app)** &nbsp;·&nbsp; **[Open the no signup demo](https://mydeloadtracker.vercel.app/demo)**
 
-- **Workout logging** — exercises with sets, reps, weight, and RPE (1–10); each session timestamped.
-- **Progressive overload tracking** — per-exercise status (progressing / plateauing / regressing) over the last 4 weeks, normalized across rep ranges via estimated 1RM (Epley: `weight × (1 + reps/30)`).
-- **Deload detection** — flags a deload when 2+ of these fire:
-  - (a) volume or e1RM hasn't increased in 3+ consecutive weeks for 2+ major lifts,
-  - (b) average RPE for a lift rose 1.5+ points with no working-weight increase,
-  - (c) session frequency dropped in the last 2 weeks vs the prior 4-week average.
-- **Training readiness score (0–100)** — a research-graded fatigue model (`readiness.ts`) layered on top of the binary trigger, combining e1RM regression, stalls, RPE creep, subjective wellness, frequency, acute:chronic workload ratio, and time-under-load via a noisy-OR. Each factor is tap-to-explain. See `docs/DELOAD_SCIENCE.md`.
-- **Strength standards** — each main lift is banded **Beginner → Elite** from its bodyweight-relative estimated 1RM (per sex), in the spirit of [StrengthLevel](https://strengthlevel.com), with a progress bar to the next band. Your overall level **right-sizes deload cadence**: novices get a long runway between deloads, advanced/elite lifters a short one (`standards.ts`).
-- **Daily check-ins** — log sleep, soreness, motivation, and energy (1–5); these feed the readiness score and the coach, and are the first labels for a future ML model.
-- **AI coach** — chat panel with your last 8 weeks of training + readiness + strength level + check-ins serialized into the system prompt (cached), so it cites real lifts, weeks, and numbers and matches advice to your experience level.
-- **Two volume views** — *volume load* (tonnage, Σ weight × reps) for total work, **and weekly hard sets per muscle group** graded against the research-backed ~10–20 set hypertrophy range (`setVolume.ts`). Sets count as "hard" unless logged below RPE 7, toward the exercise's primary muscle.
-- **Dashboard** — both volume views, a personal-records table, the readiness gauge, a check-in card, and a prominent deload alert card explaining exactly why.
-- **Exercise library** — 200+ movements across 14 muscle groups (barbell, dumbbell, machine, cable, bodyweight, Olympic, strongman, carries) with a **searchable, keyboard-navigable picker** in the logger.
-- **Workout history** — review past sessions, edit them, or delete them.
-- **Settings** — name and kg/lb unit preference; bodyweight + sex (set on the Progress page) power the strength standards.
+![Next.js 14](https://img.shields.io/badge/Next.js_14-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?logo=supabase&logoColor=white)
+![Claude](https://img.shields.io/badge/Claude_API-CC785C?logo=anthropic&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?logo=vercel&logoColor=white)
 
-## Project layout
+## The problem
 
+Most lifters don't stall because they got lazy. They stall because fatigue piles up faster than they recover, and nothing tells them. Apps like Strong and Hevy are great at recording what you did, but they never answer the one question that actually decides your next month: should I push, or should I back off?
+
+MyDeloadTracker answers it. From the sets you'd log anyway, it figures out when you're overreaching and what to do about it.
+
+## What it does
+
+- **Deload detection.** A simple, readable model that flags a deload when two or more signals fire: a main lift's estimated 1RM hasn't moved in three weeks or more, effort (RPE) has crept up at the same weight, or your training frequency has dropped versus your recent baseline.
+- **Readiness score, 0 to 100.** Nine fatigue factors rolled into one honest number, including estimated 1RM regression, HRV drops, resting heart rate, the acute to chronic workload ratio, and how many hard weeks you've stacked without a break. Tap any factor to see exactly why your score moved.
+- **Strength standards.** Every main lift is ranked from Beginner to Elite based on what you lift relative to your bodyweight, by sex. Your overall level even sets your deload timing, since advanced lifters need to back off sooner than beginners.
+- **Auto progression.** Concrete targets for your next session using double progression that reads your RPE and knows when you're in a deload.
+- **Two ways to see volume.** Classic tonnage, plus hard sets per muscle per week measured against the 10 to 20 set range the research points to for growth. Tonnage flatters your heavy lifts, so sets are the fairer way to compare muscles.
+- **An AI coach that actually knows your numbers.** A streaming chat built on Claude, with your last eight weeks of training and your readiness folded into its context and cached to keep it fast. It cites your real lifts, weeks, and trends instead of handing you generic advice.
+- **Wearable sync.** Connect an Oura ring and it pulls your HRV, resting heart rate, and sleep on its own.
+- **Everything else you'd expect.** Daily recovery logging (sleep, soreness, motivation, energy), PR celebrations, a rest timer, a searchable library of 200 plus exercises, kg or lb, and an installable app that respects the iPhone's Dynamic Island.
+
+## Spotlight: the bar scanner
+
+This is the one that makes people lean in.
+
+Point your phone at a loaded barbell, either as a photo or a few seconds of live video. Claude's vision reads the plates, adds up the total weight, works out which lift it is, counts your reps, and logs the set for you.
+
+Two things make it hold up in a real gym:
+
+- **It uses context, not just the picture.** Your recent training history and the gym around you help it pick the right lift, and on video it reads the actual movement to tell a squat from a press from a deadlift.
+- **The cost stays flat no matter how long your set runs.** A long set isn't a longer bill. Frames get sampled into a fixed, evenly spaced buffer that always covers the whole set, whether it lasted five seconds or sixty.
+
+This is the phone version of where the whole thing is headed (see the vision below).
+
+## How it works
+
+The brain of the app is a pure analytics layer in `src/lib/analytics`. Every calculation runs as a plain function over one flat shape, `TrainingSet[]`, with nothing tangled into the UI.
+
+- **Pure, testable functions.** Estimated 1RM (Epley), progression, deload, readiness, standards, and volume are each their own predictable module, all covered by 21 Vitest tests.
+- **A readiness model you can see into.** The score comes from a noisy OR over weighted fatigue factors, run as a single scoring step. It's deterministic and explainable on purpose, so you always know why your number changed.
+- **Server first.** Next.js 14 App Router with React Server Components keeps the client bundle small. Data lives in Supabase Postgres behind Row Level Security, so every athlete only ever sees their own training.
+- **Reliable vision output.** The bar scanner calls Claude with a forced tool, so the model always hands back clean structured JSON the UI can use directly.
+
+## The science, and the plan for ML
+
+The readiness and deload logic is transparent now, and learnable later.
+
+Right now it's a deterministic model grounded in current strength and recovery research, written up in `docs/DELOAD_SCIENCE.md`. There is no black box: tap a factor and you see the exact reason your score moved. The whole thing is built as one clean scoring step on purpose. Once enough real outcomes pile up, specifically whether performance rebounded after a suggested deload, that step can be swapped for, or blended with, a learned model without touching the rest of the app.
+
+## Tech stack
+
+- **Framework:** Next.js 14 (App Router)
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS
+- **Database and auth:** Supabase (Postgres and Auth, with Row Level Security)
+- **AI and vision:** Anthropic Claude API
+- **Charts:** Recharts
+- **Product analytics:** PostHog
+- **Hosting:** Vercel
+
+## Where this is going: web, then wearables, then glasses
+
+The web app and the coaching brain are the wedge, not the destination.
+
+Meta recently opened its smart glasses to outside developers, with a toolkit that lets an app read the glasses' camera and audio and pipe it through its own AI. That is the whole game. The endgame is an AI strength coach that lives in your glasses: it sees your bar, logs your set hands free, counts your reps, and talks you through the work in your ear while you lift. A phone photo can read the weight but has to guess the lift. Glasses see the motion, so they just know. That is why the form factor matters, and the bar scanner is the proof that the hard part already works today.
+
+## Running it locally
+
+```bash
+git clone https://github.com/melih-cin/mydeloadtracker.git
+cd mydeloadtracker
+npm install
 ```
-supabase/migrations/    SQL schema + seed (run these against your DB, in order)
-src/lib/analytics/      epley, progress, deload, readiness, standards, volume, setVolume, records, context (pure logic)
-src/lib/supabase/       browser + server + middleware clients (@supabase/ssr)
-src/lib/data.ts         fetch + map training data into the analytics shape
-src/app/                App Router pages (landing, login, dashboard, log, progress, coach)
-src/app/api/coach/      streaming Anthropic endpoint
-src/app/api/seed/       inserts 8 weeks of demo data for the signed-in user
-src/components/         UI: nav, charts, deload alert, log form, chat, etc.
+
+Copy `.env.local.example` to `.env.local` and fill in your Supabase and Anthropic keys (Oura and PostHog are optional).
+
+Set up the database by running the SQL files in `supabase/migrations` against your Supabase project, in order. You can paste them into the Supabase SQL editor or use the Supabase CLI.
+
+Then start it:
+
+```bash
+npm run dev
 ```
 
-## Setup
+Run the test suite with `npm test`.
 
-1. **Install dependencies**
+## Status
 
-   ```bash
-   npm install
-   ```
+Early, and built solo with a lot of AI assisted development. It is live with a public demo, and it is moving fast.
 
-2. **Create a Supabase project** and apply the schema. Either paste the files in
-   `supabase/migrations/` into the Supabase SQL editor (in order), or use the CLI:
+## Disclaimer
 
-   ```bash
-   supabase link --project-ref <your-ref>
-   supabase db push
-   ```
+This is educational training analytics and automated heuristic feedback, not medical advice. Listen to your body, and talk to a professional about any pain or injury.
 
-   In **Authentication → Providers → Email**, disabling "Confirm email" makes
-   local sign-up instant (optional).
+## License
 
-3. **Configure environment** — copy the example and fill in your keys:
-
-   ```bash
-   cp .env.local.example .env.local
-   ```
-
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=...
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-   ANTHROPIC_API_KEY=...
-   ANTHROPIC_MODEL=claude-sonnet-4-6   # optional
-   ```
-
-4. **Run it**
-
-   ```bash
-   npm run dev
-   ```
-
-   Sign up, then click **"Load 8 weeks of demo data"** on the dashboard to see the
-   deload algorithm, charts, and AI coach in action immediately.
-
-## How the deload alert is wired
-
-`src/lib/analytics/deload.ts` is the single source of truth. It runs the three
-signal checks over a 6-week window and returns `{ recommended, signals, reasons }`.
-The dashboard renders that into the alert card, and `context.ts` folds the same
-report into the coach's system prompt so the AI's advice matches the UI.
+Released under the MIT License. See [LICENSE](LICENSE).
