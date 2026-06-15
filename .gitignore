@@ -40,3 +40,7 @@ docs/GLASSES_TECH_PLAN.md
 docs/LAUNCH.md
 docs/RAISE_PLAYBOOK.md
 docs/YC_APPLICATION.md
+
+# Claude Code local tooling (not for the public repo)
+.claude/settings.local.json
+.claude/launch.json
