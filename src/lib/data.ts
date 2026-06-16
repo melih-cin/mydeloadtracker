@@ -2,8 +2,9 @@
 // flat TrainingSet shape consumed by the analytics layer.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DailyCheckin, Exercise, Profile, TrainingSet } from "@/lib/types";
+import type { DailyCheckin, Exercise, Profile, TrainingSet, Units } from "@/lib/types";
 import { localDateKey } from "@/lib/analytics/dates";
+import { fromKg } from "@/lib/units";
 
 function isoWeeksAgo(weeks: number, now: Date = new Date()): string {
   const d = new Date(now);
@@ -23,6 +24,7 @@ interface SetRow {
 
 export async function getTrainingSets(
   supabase: SupabaseClient,
+  units: Units,
   weeks: number = 8,
   now: Date = new Date(),
 ): Promise<TrainingSet[]> {
@@ -49,7 +51,7 @@ export async function getTrainingSets(
       muscleGroup: r.exercises!.muscle_group,
       isMajor: r.exercises!.is_major,
       reps: r.reps,
-      weight: Number(r.weight),
+      weight: fromKg(Number(r.weight), units),
       rpe: r.rpe != null ? Number(r.rpe) : null,
     }));
 }
@@ -68,7 +70,13 @@ export async function getExercises(supabase: SupabaseClient): Promise<Exercise[]
 export async function getProfile(supabase: SupabaseClient): Promise<Profile | null> {
   const { data, error } = await supabase.from("profiles").select("*").single();
   if (error) return null;
-  return data as Profile;
+  const profile = data as Profile;
+  // Bodyweight is stored in kg; present it in the athlete's display unit so the
+  // rest of the app can treat profile.bodyweight as already-in-display-units.
+  if (profile.bodyweight != null) {
+    profile.bodyweight = fromKg(profile.bodyweight, profile.units);
+  }
+  return profile;
 }
 
 /** Recent daily check-ins (newest first). Returns [] if the table is absent. */
@@ -138,6 +146,7 @@ interface SessionRow {
 
 export async function getSessionsWithSets(
   supabase: SupabaseClient,
+  units: Units,
   limit: number = 50,
 ): Promise<SessionWithSets[]> {
   const { data, error } = await supabase
@@ -160,7 +169,7 @@ export async function getSessionsWithSets(
       .map((s) => ({
         id: s.id,
         reps: s.reps,
-        weight: Number(s.weight),
+        weight: fromKg(Number(s.weight), units),
         rpe: s.rpe != null ? Number(s.rpe) : null,
         set_number: s.set_number,
         exerciseId: s.exercises!.id,
@@ -173,6 +182,7 @@ export async function getSessionsWithSets(
 
 export async function getSessionWithSets(
   supabase: SupabaseClient,
+  units: Units,
   sessionId: string,
 ): Promise<SessionWithSets | null> {
   const { data, error } = await supabase
@@ -195,7 +205,7 @@ export async function getSessionWithSets(
       .map((s) => ({
         id: s.id,
         reps: s.reps,
-        weight: Number(s.weight),
+        weight: fromKg(Number(s.weight), units),
         rpe: s.rpe != null ? Number(s.rpe) : null,
         set_number: s.set_number,
         exerciseId: s.exercises!.id,

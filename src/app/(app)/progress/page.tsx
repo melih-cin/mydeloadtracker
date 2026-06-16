@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic";
 
 export default async function ProgressPage() {
   const supabase = createClient();
-  const [sets, profile] = await Promise.all([getTrainingSets(supabase, 8), getProfile(supabase)]);
+  const profile = await getProfile(supabase);
   const units = profile?.units ?? "kg";
+  const sets = await getTrainingSets(supabase, units, 8);
 
   // Trend chart over 8 weeks; status classified over the last 4 weeks (spec).
   const trends = buildProgressReport(sets, 8);

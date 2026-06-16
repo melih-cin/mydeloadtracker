@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
+import { toKg } from "@/lib/units";
 import type { Sex, Units } from "@/lib/types";
 
 interface OfferedLift {
@@ -68,8 +69,11 @@ export function OnboardingForm({
       } = await supabase.auth.getUser();
       if (!user) throw new Error("You're not signed in.");
 
-      // 1) Profile
-      await supabase.from("profiles").update({ units, bodyweight: bw, sex }).eq("id", user.id);
+      // 1) Profile (bodyweight stored canonically in kg)
+      await supabase
+        .from("profiles")
+        .update({ units, bodyweight: toKg(bw, units), sex })
+        .eq("id", user.id);
 
       // 2) An initial session with their current working sets, so standards +
       //    next-session targets populate immediately (the aha moment).
@@ -86,7 +90,7 @@ export function OnboardingForm({
         user_id: user.id,
         set_number: 1,
         reps: c.reps,
-        weight: c.weight,
+        weight: toKg(c.weight, units),
         rpe: null,
       }));
       const { error: setErr } = await supabase.from("workout_sets").insert(rows);

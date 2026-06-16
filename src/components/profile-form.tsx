@@ -75,8 +75,8 @@ export function ProfileForm({ profile }: { profile: Profile | null }) {
             ))}
           </div>
           <p className="mt-2 text-xs text-muted">
-            This is a display label. Weights are stored exactly as you enter them, so set
-            this to match how you log and avoid mixing units.
+            Switch any time. Your weights convert automatically, so everything you have
+            logged stays correct in either unit. There is also a quick toggle in the top bar.
           </p>
         </div>
 

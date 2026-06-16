@@ -24,12 +24,12 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const supabase = createClient();
-  const [sets, profile, checkins] = await Promise.all([
-    getTrainingSets(supabase, 8),
-    getProfile(supabase),
+  const profile = await getProfile(supabase);
+  const units = profile?.units ?? "kg";
+  const [sets, checkins] = await Promise.all([
+    getTrainingSets(supabase, units, 8),
     getCheckins(supabase, 30),
   ]);
-  const units = profile?.units ?? "kg";
   const todayStr = todayKey();
   const todayCheckin = checkins.find((c) => c.date === todayStr) ?? null;
 

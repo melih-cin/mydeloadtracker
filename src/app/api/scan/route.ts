@@ -83,7 +83,8 @@ export async function POST(req: Request) {
   // Bias the exercise guess toward what this athlete actually trains — a still
   // photo is often ambiguous (a racked bar could be squat / front squat / press),
   // and their history is a strong prior that disambiguates.
-  const recent = await getTrainingSets(supabase, 8).catch(() => []);
+  // Units are irrelevant here: only exercise names feed the prior, not weights.
+  const recent = await getTrainingSets(supabase, "kg", 8).catch(() => []);
   const freq = new Map<string, number>();
   for (const s of recent) freq.set(s.exerciseName, (freq.get(s.exerciseName) ?? 0) + 1);
   const usual = [...freq.entries()]

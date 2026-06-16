@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Trophy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { toKg } from "@/lib/units";
 import type { Sex, Units } from "@/lib/types";
 import {
   classifyLift,
@@ -69,6 +70,12 @@ export function StrengthStandards({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // When the server-provided bodyweight changes (e.g. the athlete flipped the
+  // unit toggle and the page re-rendered with a converted value), follow it.
+  useEffect(() => {
+    if (initialBodyweight != null) setBodyweight(String(initialBodyweight));
+  }, [initialBodyweight]);
+
   async function persist(bw: string, s: Sex | null) {
     if (bw) localStorage.setItem(BW_KEY, bw);
     if (s) localStorage.setItem(SEX_KEY, s);
@@ -83,7 +90,7 @@ export function StrengthStandards({
       const n = Number(bw);
       await supabase
         .from("profiles")
-        .update({ bodyweight: Number.isFinite(n) && n > 0 ? n : null, sex: s })
+        .update({ bodyweight: Number.isFinite(n) && n > 0 ? toKg(n, units) : null, sex: s })
         .eq("id", user.id);
     } catch {
       /* no-op: localStorage already holds the value */

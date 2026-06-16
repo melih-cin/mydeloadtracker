@@ -6,6 +6,7 @@ import { Check, Loader2, Plus, Search, Trash2, Trophy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
 import { estimate1RM } from "@/lib/analytics/epley";
+import { toKg } from "@/lib/units";
 import { RestTimer } from "@/components/rest-timer";
 import type { Exercise, Units } from "@/lib/types";
 
@@ -152,7 +153,8 @@ export function LogForm({
           exercise_id: entry.exerciseId,
           set_number: i + 1,
           reps: Number(s.reps),
-          weight: Number(s.weight),
+          // Stored canonically in kg; the athlete typed it in their unit.
+          weight: toKg(Number(s.weight), units),
           rpe: s.rpe === "" ? null : Number(s.rpe),
         })),
     );

@@ -57,9 +57,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No messages provided." }, { status: 400 });
   }
 
-  const [sets, profile, checkins] = await Promise.all([
-    getTrainingSets(supabase, 8),
-    getProfile(supabase),
+  const profile = await getProfile(supabase);
+  const [sets, checkins] = await Promise.all([
+    getTrainingSets(supabase, profile?.units ?? "kg", 8),
     getCheckins(supabase, 30),
   ]);
   const context = buildCoachContext(sets, profile, checkins);

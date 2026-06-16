@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 
 export default async function EditSessionPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
-  const [session, exercises, profile] = await Promise.all([
-    getSessionWithSets(supabase, params.id),
+  const profile = await getProfile(supabase);
+  const [session, exercises] = await Promise.all([
+    getSessionWithSets(supabase, profile?.units ?? "kg", params.id),
     getExercises(supabase),
-    getProfile(supabase),
   ]);
 
   if (!session) notFound();

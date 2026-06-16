@@ -9,11 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function HistoryPage() {
   const supabase = createClient();
-  const [sessions, profile] = await Promise.all([
-    getSessionsWithSets(supabase, 60),
-    getProfile(supabase),
-  ]);
+  const profile = await getProfile(supabase);
   const units = profile?.units ?? "kg";
+  const sessions = await getSessionsWithSets(supabase, units, 60);
 
   return (
     <div className="space-y-6">

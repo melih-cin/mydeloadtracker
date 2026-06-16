@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Camera, Check, Loader2, ScanLine, Sparkles, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
+import { toKg } from "@/lib/units";
 import type { Exercise, Units } from "@/lib/types";
 
 interface Reading {
@@ -250,7 +251,7 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
         user_id: user.id,
         set_number: 1,
         reps: Number(reps),
-        weight: Number(weight),
+        weight: toKg(Number(weight), units),
         rpe: null,
       });
       if (setErr) throw new Error(setErr.message);
