@@ -1,5 +1,6 @@
 import { Flame } from "lucide-react";
 import type { Activity } from "@/lib/ui";
+import { IconBadge } from "@/components/icon-badge";
 
 /**
  * A glanceable consistency readout: the current week streak and a small 8-week
@@ -12,19 +13,21 @@ export function ActivityStrip({ activity }: { activity: Activity }) {
 
   return (
     <div className="card flex items-center justify-between gap-5">
-      <div className="min-w-0">
-        <span className="micro">Consistency</span>
-        <div className="mt-1.5 flex items-baseline gap-2">
-          <Flame className="h-5 w-5 self-center text-brand" />
-          <span className="readout text-3xl font-semibold leading-none">
-            {streakWeeks}
-            {streakWeeks >= 8 ? "+" : ""}
-          </span>
-          <span className="text-sm text-muted">week streak</span>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <IconBadge icon={Flame} color="orange" size="md" />
+        <div className="min-w-0">
+          <span className="micro">Consistency</span>
+          <div className="mt-0.5 flex items-baseline gap-2">
+            <span className="readout text-3xl font-semibold leading-none">
+              {streakWeeks}
+              {streakWeeks >= 8 ? "+" : ""}
+            </span>
+            <span className="text-sm text-muted">week streak</span>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            {sessionsThisWeek} {sessionsThisWeek === 1 ? "session" : "sessions"} in the last 7 days
+          </p>
         </div>
-        <p className="mt-1.5 text-xs text-muted">
-          {sessionsThisWeek} {sessionsThisWeek === 1 ? "session" : "sessions"} in the last 7 days
-        </p>
       </div>
 
       <div className="flex h-12 flex-shrink-0 items-end gap-1.5" aria-hidden>

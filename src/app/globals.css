@@ -106,14 +106,16 @@ body::after {
       0 20px 50px -28px hsl(0 0% 0% / 0.8);
   }
   .btn {
-    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium
-      transition-[background-color,opacity,transform] active:scale-[0.98]
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold
+      transition-[background-color,opacity,transform,box-shadow] active:scale-[0.98]
       disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
     min-height: 2.75rem; /* 44px: comfortable, sweaty-thumb tap target */
   }
-  /* Primary action: a high-contrast "key". Distinct, premium, instrument-like. */
+  /* Primary action: a vibrant azure to indigo key. Fresh and unmistakable. */
   .btn-brand {
-    @apply btn bg-foreground text-background hover:opacity-90;
+    @apply btn text-white hover:brightness-110;
+    background-image: linear-gradient(135deg, hsl(222 86% 58%), hsl(250 82% 63%));
+    box-shadow: 0 10px 24px -10px hsl(232 82% 56% / 0.65);
   }
   /* Branded-azure action, for secondary emphasis that still reads as a control. */
   .btn-accent {

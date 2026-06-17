@@ -5,7 +5,7 @@
 // real PWA without ever serving stale build chunks. API/auth requests are never
 // cached.
 
-const CACHE = "mdt-v1";
+const CACHE = "mdt-v2";
 const SHELL = ["/dashboard", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

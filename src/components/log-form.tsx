@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Plus, Search, Trash2, Trophy } from "lucide-react";
+import { Check, Dumbbell, Loader2, Plus, Search, Trash2, Trophy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
 import { estimate1RM } from "@/lib/analytics/epley";
 import { toKg } from "@/lib/units";
 import { RestTimer } from "@/components/rest-timer";
+import { IconBadge } from "@/components/icon-badge";
 import type { Exercise, Units } from "@/lib/types";
 
 interface SetEntry {
@@ -276,18 +277,21 @@ export function LogForm({
         const ex = exerciseById.get(entry.exerciseId);
         return (
           <div key={entry.key} className="card">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">{ex?.name}</h3>
-                <p className="text-xs text-muted">
+            <div className="mb-4 flex items-center gap-3">
+              <IconBadge icon={Dumbbell} color="blue" size="md" />
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold leading-tight">{ex?.name}</h3>
+                <p className="truncate text-xs text-muted">
                   {ex?.muscle_group}
                   {ex?.equipment && ` · ${ex.equipment}`}
-                  {ex?.is_major && " · major lift"}
+                  {ex?.is_major && (
+                    <span className="text-brand"> · major lift</span>
+                  )}
                 </p>
               </div>
               <button
                 onClick={() => removeExercise(entry.key)}
-                className="text-muted hover:text-danger"
+                className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-danger/10 hover:text-danger"
                 aria-label="Remove exercise"
               >
                 <Trash2 className="h-4 w-4" />
@@ -295,23 +299,25 @@ export function LogForm({
             </div>
 
             <div className="space-y-2">
-              <div className="grid grid-cols-[2rem_1fr_1fr_1fr_2rem] items-center gap-2 text-xs uppercase tracking-wide text-muted">
-                <span>Set</span>
-                <span>Reps</span>
-                <span>Weight ({units})</span>
-                <span>RPE</span>
+              <div className="grid grid-cols-[2.25rem_1fr_1fr_1fr_2.25rem] items-center gap-2">
+                <span className="micro text-center">Set</span>
+                <span className="micro">Reps</span>
+                <span className="micro">Weight ({units})</span>
+                <span className="micro">RPE</span>
                 <span />
               </div>
               {entry.sets.map((s, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[2rem_1fr_1fr_1fr_2rem] items-center gap-2"
+                  className="grid grid-cols-[2.25rem_1fr_1fr_1fr_2.25rem] items-center gap-2"
                 >
-                  <span className="text-sm tabular-nums text-muted">{i + 1}</span>
+                  <span className="readout grid h-9 place-items-center rounded-lg bg-surface-2 text-sm font-medium text-muted">
+                    {i + 1}
+                  </span>
                   <input
                     type="number"
                     inputMode="numeric"
-                    className="input"
+                    className="input readout text-center"
                     placeholder="5"
                     value={s.reps}
                     onChange={(e) => updateSet(entry.key, i, "reps", e.target.value)}
@@ -320,7 +326,7 @@ export function LogForm({
                     type="number"
                     inputMode="decimal"
                     step="0.5"
-                    className="input"
+                    className="input readout text-center"
                     placeholder="100"
                     value={s.weight}
                     onChange={(e) => updateSet(entry.key, i, "weight", e.target.value)}
@@ -331,14 +337,14 @@ export function LogForm({
                     step="0.5"
                     min="1"
                     max="10"
-                    className="input"
+                    className="input readout text-center"
                     placeholder="8"
                     value={s.rpe}
                     onChange={(e) => updateSet(entry.key, i, "rpe", e.target.value)}
                   />
                   <button
                     onClick={() => removeSet(entry.key, i)}
-                    className="grid h-8 w-8 place-items-center text-muted hover:text-danger"
+                    className="grid h-9 w-9 place-items-center rounded-lg text-muted transition-colors hover:bg-danger/10 hover:text-danger"
                     aria-label="Remove set"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -347,7 +353,7 @@ export function LogForm({
               ))}
             </div>
 
-            <button onClick={() => addSet(entry.key)} className="btn-ghost mt-3 text-sm">
+            <button onClick={() => addSet(entry.key)} className="btn-ghost mt-3 w-full text-sm">
               <Plus className="h-4 w-4" /> Add set
             </button>
           </div>

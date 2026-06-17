@@ -1,15 +1,26 @@
 import Link from "next/link";
-import { Dumbbell, Flame, ScanLine, TrendingUp, Trophy } from "lucide-react";
+import {
+  ArrowRight,
+  Brain,
+  CalendarCheck,
+  Dumbbell,
+  LineChart,
+  ScanLine,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Trophy,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCheckins, getProfile, getTrainingSets } from "@/lib/data";
 import { todayKey, localDateKey } from "@/lib/analytics/dates";
 import { detectDeload } from "@/lib/analytics/deload";
 import { computeReadiness } from "@/lib/analytics/readiness";
-import { buildVolumeReport } from "@/lib/analytics/volume";
 import { buildSetVolume } from "@/lib/analytics/setVolume";
 import { buildRecords } from "@/lib/analytics/records";
 import { buildProgressReport } from "@/lib/analytics/progress";
 import { buildNextSessions } from "@/lib/analytics/progression";
+import { isStandardLift } from "@/lib/analytics/standards";
 import { buildTodaysCall, buildActivity } from "@/lib/ui";
 import { TodaysCall } from "@/components/todays-call";
 import { ActivityStrip } from "@/components/activity-strip";
@@ -17,11 +28,20 @@ import { DeloadAlert } from "@/components/deload-alert";
 import { ReadinessGauge } from "@/components/readiness-gauge";
 import { VolumeChart } from "@/components/volume-chart";
 import { SetVolumePanel } from "@/components/set-volume";
+import { StrengthStandards } from "@/components/strength-standards";
 import { NextSessionCard } from "@/components/next-session";
 import { RecordsTable } from "@/components/records-table";
 import { CheckinCard } from "@/components/checkin-card";
 import { SeedButton } from "@/components/seed-button";
+import { IconBadge, type BadgeColor } from "@/components/icon-badge";
 import { TrackOnMount } from "@/components/analytics";
+
+const EXPLORE: { href: string; label: string; sub: string; icon: typeof Brain; color: BadgeColor }[] = [
+  { href: "/log", label: "Log a workout", sub: "Sets, reps, RPE", icon: Dumbbell, color: "blue" },
+  { href: "/scan", label: "Scan the bar", sub: "Read the weight", icon: ScanLine, color: "violet" },
+  { href: "/coach", label: "Ask the coach", sub: "Your real numbers", icon: Brain, color: "indigo" },
+  { href: "/progress", label: "See progress", sub: "Trends and PRs", icon: LineChart, color: "green" },
+];
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +60,9 @@ export default async function DashboardPage() {
     return (
       <div className="grid min-h-[70vh] place-items-center">
         <div className="panel max-w-md text-center">
-          <span className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-brand/15 text-brand">
-            <Dumbbell className="h-6 w-6" />
-          </span>
+          <div className="mx-auto mb-4 w-fit">
+            <IconBadge icon={Dumbbell} color="blue" size="lg" />
+          </div>
           <h1 className="text-xl font-semibold">Let&apos;s get your first reading</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             Tell us your main lifts and your numbers. In about a minute you&apos;ll have a strength
@@ -89,32 +109,25 @@ export default async function DashboardPage() {
   const trainedKeys = new Set(sets.map((s) => localDateKey(new Date(s.date))));
   const activity = buildActivity(trainedKeys, now);
 
-  const volume = buildVolumeReport(sets, 8);
   const setVolume = buildSetVolume(sets, 4, 8);
-
-  // Tonnage as a single total-per-week series. This is tonnage's honest use —
-  // tracking your own total work over time — NOT a cross-muscle comparison,
-  // where heavy lifts (back/legs) always dwarf small muscles (biceps) and
-  // misrepresent how balanced your training actually is.
-  const tonnageTrend = {
-    muscleGroups: ["Total"],
-    rows: volume.rows.map((r) => ({ label: r.label, Total: r.total })),
-  };
   const records = buildRecords(sets);
   const progress = buildProgressReport(sets, 4);
   const nextSessions = buildNextSessions(sets, { units, deload: deload.recommended });
+  const standardLifts = records
+    .filter((r) => isStandardLift(r.exerciseName))
+    .map((r) => ({ name: r.exerciseName, e1rm: r.bestE1RM }));
 
-  const totalVolume = volume.rows.reduce((a, r) => a + r.total, 0);
+  const sessions = new Set(sets.map((s) => s.sessionId)).size;
   const progressing = progress.filter((p) => p.status === "progressing").length;
   const stalls = progress.filter(
     (p) => p.status === "plateauing" || p.status === "regressing",
   ).length;
 
-  const stats = [
-    { label: "8-week volume", value: Math.round(totalVolume).toLocaleString(), unit: units, icon: Flame },
-    { label: "Lifts progressing", value: String(progressing), unit: "", icon: TrendingUp },
-    { label: "Stalled lifts", value: String(stalls), unit: "", icon: Dumbbell },
-    { label: "Personal records", value: String(records.length), unit: "", icon: Trophy },
+  const stats: { label: string; value: string; icon: typeof Trophy; color: BadgeColor }[] = [
+    { label: "Sessions, 8 wk", value: String(sessions), icon: CalendarCheck, color: "blue" },
+    { label: "Lifts progressing", value: String(progressing), icon: TrendingUp, color: "green" },
+    { label: "Stalled lifts", value: String(stalls), icon: TrendingDown, color: "amber" },
+    { label: "Personal records", value: String(records.length), icon: Trophy, color: "rose" },
   ];
 
   const primary = call.state === "back-off"
@@ -163,22 +176,40 @@ export default async function DashboardPage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
           <div key={s.label} className="card">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="micro">{s.label}</span>
-              <s.icon className="h-4 w-4 text-faint" />
+              <IconBadge icon={s.icon} color={s.color} size="sm" />
             </div>
-            <div className="readout mt-3 text-3xl font-semibold">
-              {s.value}
-              {s.unit && <span className="ml-1 font-sans text-sm font-normal text-muted">{s.unit}</span>}
-            </div>
+            <div className="readout mt-3 text-3xl font-semibold">{s.value}</div>
           </div>
         ))}
       </div>
 
+      <section>
+        <h2 className="mb-3 px-1 font-semibold">Explore</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {EXPLORE.map((e) => (
+            <Link
+              key={e.href}
+              href={e.href}
+              className="card group transition-colors hover:bg-surface-hover"
+            >
+              <IconBadge icon={e.icon} color={e.color} size="lg" />
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className="font-semibold">{e.label}</span>
+                <ArrowRight className="h-4 w-4 flex-shrink-0 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </div>
+              <p className="text-xs text-muted">{e.sub}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <div className="card">
-        <div className="mb-1 flex items-center justify-between">
+        <div className="mb-1 flex items-center gap-2.5">
+          <IconBadge icon={TrendingUp} color="blue" size="sm" />
           <h2 className="font-semibold">Your next session</h2>
-          <span className="micro">auto-progression</span>
+          <span className="micro ml-auto">auto-progression</span>
         </div>
         <p className="mb-4 text-xs text-muted">
           Targets from your last numbers and RPE. {deload.recommended ? "Deload week, so everything backs off." : "Earn load when it feels easy, hold and chase reps when it feels hard."}
@@ -188,9 +219,10 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="card lg:col-span-3">
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1 flex items-center gap-2.5">
+            <IconBadge icon={LineChart} color="cyan" size="sm" />
             <h2 className="font-semibold">Weekly sets by muscle group</h2>
-            <span className="micro">last 8 weeks</span>
+            <span className="micro ml-auto">last 8 weeks</span>
           </div>
           <p className="mb-4 text-xs text-muted">
             Hard sets, the fair way to compare muscles. 10 back sets count like 10 biceps sets in
@@ -206,9 +238,10 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="card lg:col-span-3">
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1 flex items-center gap-2.5">
+            <IconBadge icon={Target} color="green" size="sm" />
             <h2 className="font-semibold">Muscles vs the growth target</h2>
-            <span className="micro">avg, last 4 weeks</span>
+            <span className="micro ml-auto">avg, last 4 weeks</span>
           </div>
           <p className="mb-4 text-xs text-muted">
             Research favors about 10 to 20 hard sets per muscle each week. The shaded band marks that
@@ -217,23 +250,21 @@ export default async function DashboardPage() {
           <SetVolumePanel report={setVolume} />
         </div>
 
-        <div className="card lg:col-span-2">
-          <div className="mb-1 flex items-center justify-between">
-            <h2 className="font-semibold">Total workload</h2>
-            <span className="micro">tonnage / wk</span>
-          </div>
-          <p className="mb-4 text-xs text-muted">
-            Total weight times reps across all lifts. Use this to track your own progressive overload
-            over time, not to compare muscles.
-          </p>
-          <VolumeChart report={tonnageTrend} unit={units} showLegend={false} height={240} />
+        <div className="lg:col-span-2">
+          <StrengthStandards
+            lifts={standardLifts}
+            units={units}
+            initialBodyweight={profile?.bodyweight ?? null}
+            initialSex={profile?.sex ?? null}
+          />
         </div>
       </div>
 
       <div className="card">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center gap-2.5">
+          <IconBadge icon={Trophy} color="rose" size="sm" />
           <h2 className="font-semibold">Personal records</h2>
-          <Link href="/progress" className="text-xs font-medium text-brand hover:underline">
+          <Link href="/progress" className="ml-auto text-xs font-medium text-brand hover:underline">
             View progress
           </Link>
         </div>
