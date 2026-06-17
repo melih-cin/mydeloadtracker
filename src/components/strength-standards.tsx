@@ -177,9 +177,7 @@ export function StrengthStandards({
             <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-background/60 p-3 text-sm">
               <span className="text-muted">Overall:</span>
               <LevelBadge id={overall.level.id} label={overall.level.label} />
-              <span className="text-muted">
-                · deloads {cadence.note}.
-              </span>
+              <span className="text-muted">· {cadence.note}.</span>
             </div>
           )}
 

@@ -80,7 +80,7 @@ export function FeedbackWidget() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Send feedback"
-        className="fixed bottom-20 right-4 z-40 grid h-12 w-12 place-items-center rounded-full bg-brand text-brand-foreground shadow-lg transition-transform hover:scale-105 md:bottom-5"
+        className="fixed bottom-5 right-4 z-40 hidden h-12 w-12 place-items-center rounded-full bg-brand text-brand-foreground shadow-lg transition-transform hover:scale-105 md:grid"
       >
         {open ? <X className="h-5 w-5" /> : <MessageSquarePlus className="h-5 w-5" />}
       </button>

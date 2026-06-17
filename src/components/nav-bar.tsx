@@ -2,27 +2,24 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  Activity,
-  Brain,
-  Dumbbell,
-  History,
-  LayoutDashboard,
-  LineChart,
-  LogOut,
-  ScanLine,
-  Settings,
-} from "lucide-react";
+import { Activity, Brain, Dumbbell, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
+// Four primary destinations. Scan lives inside Log; History lives inside
+// Progress. Fewer tabs means bigger, easier targets on a phone.
 const LINKS = [
-  { href: "/dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard },
-  { href: "/log", label: "Log workout", short: "Log", icon: Dumbbell },
-  { href: "/scan", label: "Scan", short: "Scan", icon: ScanLine },
-  { href: "/history", label: "History", short: "History", icon: History },
-  { href: "/progress", label: "Progress", short: "Progress", icon: LineChart },
-  { href: "/coach", label: "AI coach", short: "Coach", icon: Brain },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { href: "/log", label: "Log", icon: Dumbbell },
+  { href: "/progress", label: "Progress", icon: LineChart },
+  { href: "/coach", label: "Coach", icon: Brain },
 ];
+
+function isActive(pathname: string, href: string) {
+  if (href === "/progress") return pathname.startsWith("/progress") || pathname.startsWith("/history");
+  if (href === "/log") return pathname.startsWith("/log") || pathname.startsWith("/scan");
+  if (href === "/dashboard") return pathname === "/dashboard" || pathname.startsWith("/insights");
+  return pathname.startsWith(href);
+}
 
 export function NavBar({ email }: { email: string | null }) {
   const pathname = usePathname();
@@ -46,18 +43,18 @@ export function NavBar({ email }: { email: string | null }) {
 
       <nav className="flex flex-1 flex-col gap-1">
         {LINKS.map((link) => {
-          const active = pathname === link.href;
+          const active = isActive(pathname, link.href);
           return (
             <Link
               key={link.href}
               href={link.href}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors ${
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
                 active
                   ? "bg-brand/15 font-medium text-brand"
                   : "text-muted hover:bg-surface-hover hover:text-foreground"
               }`}
             >
-              <link.icon className="h-4 w-4" />
+              <link.icon className="h-5 w-5" />
               {link.label}
             </Link>
           );
@@ -67,21 +64,21 @@ export function NavBar({ email }: { email: string | null }) {
       <div className="border-t border-border pt-4">
         <Link
           href="/settings"
-          className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors ${
+          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
             pathname === "/settings"
               ? "bg-brand/15 font-medium text-brand"
               : "text-muted hover:bg-surface-hover hover:text-foreground"
           }`}
         >
-          <Settings className="h-4 w-4" />
+          <Settings className="h-5 w-5" />
           Settings
         </Link>
         <p className="mt-3 truncate px-3 text-xs text-muted">{email}</p>
         <button
           onClick={signOut}
-          className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+          className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="h-5 w-5" />
           Sign out
         </button>
       </div>
@@ -92,10 +89,10 @@ export function NavBar({ email }: { email: string | null }) {
 export function MobileNav() {
   const pathname = usePathname();
   return (
-    <nav className="sticky bottom-0 z-20 border-t border-border bg-surface/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-      <div className="flex px-1">
+    <nav className="sticky bottom-0 z-20 border-t border-border bg-surface/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
+      <div className="flex px-2">
         {LINKS.map((link) => {
-          const active = pathname === link.href;
+          const active = isActive(pathname, link.href);
           return (
             <Link
               key={link.href}
@@ -104,18 +101,18 @@ export function MobileNav() {
               className="flex flex-1 flex-col items-center gap-1 py-2"
             >
               <span
-                className={`grid h-8 w-12 place-items-center rounded-full transition-colors ${
+                className={`grid h-9 w-16 place-items-center rounded-2xl transition-colors ${
                   active ? "bg-brand/15 text-brand" : "text-muted"
                 }`}
               >
-                <link.icon className="h-[18px] w-[18px]" />
+                <link.icon className="h-6 w-6" />
               </span>
               <span
-                className={`text-[10px] leading-none transition-colors ${
-                  active ? "font-medium text-brand" : "text-muted"
+                className={`text-[11px] leading-none transition-colors ${
+                  active ? "font-semibold text-brand" : "text-muted"
                 }`}
               >
-                {link.short}
+                {link.label}
               </span>
             </Link>
           );

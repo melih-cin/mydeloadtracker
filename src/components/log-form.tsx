@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Dumbbell, Loader2, Plus, Search, Trash2, Trophy } from "lucide-react";
+import { Check, Loader2, Plus, Search, Trash2, Trophy, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
 import { estimate1RM } from "@/lib/analytics/epley";
 import { toKg } from "@/lib/units";
+import { exerciseColor, exerciseIcon } from "@/lib/exercise-visual";
 import { RestTimer } from "@/components/rest-timer";
 import { IconBadge } from "@/components/icon-badge";
 import type { Exercise, Units } from "@/lib/types";
@@ -65,47 +66,38 @@ export function LogForm({
     })),
   );
   const [query, setQuery] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [prs, setPrs] = useState<string[]>([]);
 
-  const exerciseById = useMemo(
-    () => new Map(exercises.map((e) => [e.id, e])),
-    [exercises],
-  );
+  const exerciseById = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
-  // Filter the library by the search query (name / muscle / equipment).
-  const filtered = useMemo(() => {
+  // Typeahead: closest matches first, capped. Empty query shows nothing, so the
+  // field does not dump the whole library the moment you tap it.
+  const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return exercises;
-    return exercises.filter(
-      (ex) =>
-        ex.name.toLowerCase().includes(q) ||
-        ex.muscle_group.toLowerCase().includes(q) ||
-        (ex.equipment ?? "").toLowerCase().includes(q),
-    );
+    if (!q) return [];
+    return exercises
+      .map((ex) => {
+        const name = ex.name.toLowerCase();
+        let score = -1;
+        if (name === q) score = 100;
+        else if (name.startsWith(q)) score = 80;
+        else if (name.includes(q)) score = 60;
+        else if (ex.muscle_group.toLowerCase().includes(q)) score = 40;
+        else if ((ex.equipment ?? "").toLowerCase().includes(q)) score = 30;
+        return { ex, score };
+      })
+      .filter((s) => s.score >= 0)
+      .sort((a, b) => b.score - a.score || a.ex.name.length - b.ex.name.length)
+      .slice(0, 12)
+      .map((s) => s.ex);
   }, [exercises, query]);
 
-  // Group the filtered results by muscle, tracking each item's flat index so the
-  // keyboard highlight maps cleanly across group headers.
-  const groups = useMemo(() => {
-    const g: { muscle: string; items: { ex: Exercise; flatIndex: number }[] }[] = [];
-    filtered.forEach((ex, i) => {
-      const last = g[g.length - 1];
-      if (!last || last.muscle !== ex.muscle_group) g.push({ muscle: ex.muscle_group, items: [] });
-      g[g.length - 1].items.push({ ex, flatIndex: i });
-    });
-    return g;
-  }, [filtered]);
-
   function addExerciseById(id: string) {
-    setEntries((prev) => [
-      ...prev,
-      { key: `${id}-${Date.now()}`, exerciseId: id, sets: [emptySet()] },
-    ]);
+    setEntries((prev) => [...prev, { key: `${id}-${Date.now()}`, exerciseId: id, sets: [emptySet()] }]);
+    setQuery("");
   }
 
   function removeExercise(key: string) {
@@ -117,7 +109,6 @@ export function LogForm({
       prev.map((e) => {
         if (e.key !== key) return e;
         const last = e.sets[e.sets.length - 1] ?? emptySet();
-        // Pre-fill from the previous set to speed up entry.
         return { ...e, sets: [...e.sets, { ...last }] };
       }),
     );
@@ -125,21 +116,14 @@ export function LogForm({
 
   function removeSet(key: string, idx: number) {
     setEntries((prev) =>
-      prev.map((e) =>
-        e.key === key ? { ...e, sets: e.sets.filter((_, i) => i !== idx) } : e,
-      ),
+      prev.map((e) => (e.key === key ? { ...e, sets: e.sets.filter((_, i) => i !== idx) } : e)),
     );
   }
 
   function updateSet(key: string, idx: number, field: keyof SetEntry, value: string) {
     setEntries((prev) =>
       prev.map((e) =>
-        e.key === key
-          ? {
-              ...e,
-              sets: e.sets.map((s, i) => (i === idx ? { ...s, [field]: value } : s)),
-            }
-          : e,
+        e.key === key ? { ...e, sets: e.sets.map((s, i) => (i === idx ? { ...s, [field]: value } : s)) } : e,
       ),
     );
   }
@@ -177,17 +161,13 @@ export function LogForm({
       let targetSessionId = sessionId;
 
       if (isEdit && sessionId) {
-        // Update the session, then replace all its sets.
         const { error: uErr } = await supabase
           .from("workout_sessions")
           .update({ performed_at: performedAt, notes: notes || null })
           .eq("id", sessionId);
         if (uErr) throw new Error(uErr.message);
 
-        const { error: delErr } = await supabase
-          .from("workout_sets")
-          .delete()
-          .eq("session_id", sessionId);
+        const { error: delErr } = await supabase.from("workout_sets").delete().eq("session_id", sessionId);
         if (delErr) throw new Error(delErr.message);
       } else {
         const { data: session, error: sErr } = await supabase
@@ -204,7 +184,6 @@ export function LogForm({
         .insert(rows.map((r) => ({ ...r, session_id: targetSessionId, user_id: user.id })));
       if (setErr) throw new Error(setErr.message);
 
-      // PR detection (new sessions only): did a lift beat the athlete's prior best e1RM?
       let prNames: string[] = [];
       if (!isEdit) {
         const newBest = new Map<string, number>();
@@ -230,12 +209,7 @@ export function LogForm({
         setPrs(prNames);
       }
 
-      capture("workout_logged", {
-        sets: rows.length,
-        exercises: entries.length,
-        edit: isEdit,
-        prs: prNames.length,
-      });
+      capture("workout_logged", { sets: rows.length, exercises: entries.length, edit: isEdit, prs: prNames.length });
       setSaved(true);
       setTimeout(() => router.push(isEdit ? "/history" : "/dashboard"), prNames.length ? 2000 : 700);
       router.refresh();
@@ -246,47 +220,90 @@ export function LogForm({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* Search, pinned at the top so the keyboard never covers it. */}
+      <div className="card">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+          <input
+            className="input pl-10 pr-10"
+            inputMode="search"
+            autoComplete="off"
+            placeholder={`Search ${exercises.length} exercises`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && results[0]) {
+                e.preventDefault();
+                addExerciseById(results[0].id);
+              }
+            }}
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-muted hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {query.trim() && (
+          <div className="mt-2 max-h-[44vh] overflow-auto rounded-xl border border-border scroll-thin">
+            {results.length === 0 ? (
+              <p className="px-3 py-4 text-sm text-muted">
+                Nothing matches &ldquo;{query}&rdquo;. Try a muscle or a piece of equipment.
+              </p>
+            ) : (
+              results.map((ex) => (
+                <button
+                  key={ex.id}
+                  type="button"
+                  onClick={() => addExerciseById(ex.id)}
+                  className="flex w-full items-center gap-3 border-b border-border/60 px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-surface-hover"
+                >
+                  <IconBadge icon={exerciseIcon(ex.equipment)} color={exerciseColor(ex.muscle_group)} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                      {ex.name}
+                      {ex.is_major && <span className="text-[10px] font-semibold text-brand">MAJOR</span>}
+                    </span>
+                    <span className="block truncate text-xs text-muted">
+                      {ex.muscle_group}
+                      {ex.equipment && ` · ${ex.equipment}`}
+                    </span>
+                  </span>
+                  <Plus className="h-4 w-4 flex-shrink-0 text-faint" />
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       <RestTimer />
 
-      <div className="card">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label">Session date</label>
-            <input
-              type="date"
-              className="input"
-              value={date}
-              max={today}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Notes (optional)</label>
-            <input
-              className="input"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Felt strong, bumped squat…"
-            />
-          </div>
+      {/* Session builder */}
+      {entries.length === 0 && !query.trim() && (
+        <div className="card text-center">
+          <p className="text-sm text-muted">Search above to add your first exercise.</p>
         </div>
-      </div>
+      )}
 
       {entries.map((entry) => {
         const ex = exerciseById.get(entry.exerciseId);
         return (
           <div key={entry.key} className="card">
             <div className="mb-4 flex items-center gap-3">
-              <IconBadge icon={Dumbbell} color="blue" size="md" />
+              <IconBadge icon={exerciseIcon(ex?.equipment)} color={exerciseColor(ex?.muscle_group)} size="md" />
               <div className="min-w-0 flex-1">
                 <h3 className="font-semibold leading-tight">{ex?.name}</h3>
                 <p className="truncate text-xs text-muted">
                   {ex?.muscle_group}
                   {ex?.equipment && ` · ${ex.equipment}`}
-                  {ex?.is_major && (
-                    <span className="text-brand"> · major lift</span>
-                  )}
+                  {ex?.is_major && <span className="text-brand"> · major lift</span>}
                 </p>
               </div>
               <button
@@ -307,10 +324,7 @@ export function LogForm({
                 <span />
               </div>
               {entry.sets.map((s, i) => (
-                <div
-                  key={i}
-                  className="grid grid-cols-[2.25rem_1fr_1fr_1fr_2.25rem] items-center gap-2"
-                >
+                <div key={i} className="grid grid-cols-[2.25rem_1fr_1fr_1fr_2.25rem] items-center gap-2">
                   <span className="readout grid h-9 place-items-center rounded-lg bg-surface-2 text-sm font-medium text-muted">
                     {i + 1}
                   </span>
@@ -360,117 +374,46 @@ export function LogForm({
         );
       })}
 
+      {/* Date + notes, secondary, kept out of the way at the bottom. */}
       <div className="card">
-        <label className="label">Add an exercise</label>
-        <div className="relative">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label">Session date</label>
+            <input type="date" className="input" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Notes (optional)</label>
             <input
-              className="input pl-9"
-              placeholder={`Search ${exercises.length} exercises by name, muscle, or equipment…`}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setHighlight(0);
-                setPickerOpen(true);
-              }}
-              onFocus={() => setPickerOpen(true)}
-              onBlur={() => setTimeout(() => setPickerOpen(false), 120)}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setPickerOpen(true);
-                  setHighlight((h) => Math.min(h + 1, filtered.length - 1));
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setHighlight((h) => Math.max(h - 1, 0));
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  const ex = filtered[highlight];
-                  if (ex) {
-                    addExerciseById(ex.id);
-                    setQuery("");
-                    setHighlight(0);
-                  }
-                } else if (e.key === "Escape") {
-                  setPickerOpen(false);
-                }
-              }}
+              className="input"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Felt strong, bumped squat"
             />
           </div>
-
-          {pickerOpen && (
-            <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-border bg-surface shadow-lg scroll-thin">
-              {filtered.length === 0 ? (
-                <p className="px-3 py-3 text-sm text-muted">No exercises match “{query}”.</p>
-              ) : (
-                groups.map((group) => (
-                  <div key={group.muscle}>
-                    <div className="sticky top-0 bg-surface px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                      {group.muscle}
-                    </div>
-                    {group.items.map(({ ex, flatIndex }) => (
-                      <button
-                        key={ex.id}
-                        type="button"
-                        // onMouseDown (not onClick) so the input doesn't blur and
-                        // close the panel before the add registers — lets you add
-                        // several exercises from one search.
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          addExerciseById(ex.id);
-                          setQuery("");
-                          setHighlight(0);
-                        }}
-                        onMouseEnter={() => setHighlight(flatIndex)}
-                        className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors ${
-                          flatIndex === highlight ? "bg-surface-hover" : ""
-                        }`}
-                      >
-                        <span>
-                          {ex.is_major && <span className="text-brand">★ </span>}
-                          {ex.name}
-                        </span>
-                        {ex.equipment && (
-                          <span className="flex-shrink-0 text-xs text-muted">{ex.equipment}</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
         </div>
-        <p className="mt-2 text-xs text-muted">
-          {entries.length === 0
-            ? "Search and click an exercise to start building your session."
-            : "Add another exercise, or save below."}
-        </p>
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
 
-      <div className="flex items-center justify-end gap-3">
-        {saved &&
-          (prs.length > 0 ? (
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-warning">
-              <Trophy className="h-4 w-4" /> New PR: {prs.join(", ")}! 🎉
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-sm text-success">
-              <Check className="h-4 w-4" /> Saved!
-            </span>
-          ))}
-        <button
-          onClick={save}
-          disabled={saving || saved || entries.length === 0}
-          className="btn-brand px-6 py-2.5"
-        >
-          {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          {isEdit ? "Save changes" : "Save workout"}
-        </button>
-      </div>
+      {saved &&
+        (prs.length > 0 ? (
+          <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-warning">
+            <Trophy className="h-4 w-4" /> New PR: {prs.join(", ")}!
+          </p>
+        ) : (
+          <p className="flex items-center justify-center gap-1.5 text-sm text-success">
+            <Check className="h-4 w-4" /> Saved
+          </p>
+        ))}
+
+      <button
+        onClick={save}
+        disabled={saving || saved || entries.length === 0}
+        className="btn-brand w-full py-3"
+      >
+        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+        {isEdit ? "Save changes" : "Save workout"}
+      </button>
     </div>
   );
 }

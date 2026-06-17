@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import type { Tone } from "@/lib/analytics/readiness";
 import { toneAccentVar } from "@/lib/ui";
 import { ReadinessPulse } from "@/components/readiness-pulse";
@@ -22,6 +22,7 @@ export function TodaysCall({
   trend,
   primaryHref,
   primaryLabel,
+  breakdownHref,
 }: {
   score: number;
   verdict: string;
@@ -31,6 +32,8 @@ export function TodaysCall({
   trend: number[];
   primaryHref: string;
   primaryLabel: string;
+  /** When set, shows a "see the full breakdown" link (used on Home). */
+  breakdownHref?: string;
 }) {
   const display = useCountUp(score);
   const accent = toneAccentVar(tone);
@@ -80,11 +83,20 @@ export function TodaysCall({
         <ReadinessPulse points={trend} color="hsl(var(--accent))" uid="hero-pulse" className="h-16 w-full" />
       </div>
 
-      <div className="relative mt-4">
+      <div className="relative mt-4 flex flex-wrap items-center gap-3">
         <Link href={primaryHref} className="btn-brand w-full sm:w-auto sm:px-6">
           {primaryLabel}
           <ArrowRight className="h-4 w-4" />
         </Link>
+        {breakdownHref && (
+          <Link
+            href={breakdownHref}
+            className="inline-flex items-center gap-0.5 text-sm font-medium text-muted transition-colors hover:text-foreground max-sm:w-full max-sm:justify-center"
+          >
+            See the full breakdown
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        )}
       </div>
     </section>
   );
