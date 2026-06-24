@@ -1,32 +1,20 @@
-// Strength standards — classify a lifter Beginner → Elite per lift, the way
-// https://strengthlevel.com does, from the ratio of estimated 1RM to bodyweight.
+// Strength standards, classify a lifter Beginner -> Elite per lift the way
+// https://strengthlevel.com does. The numbers are NOT approximations: they are
+// the exact standards scraped from strengthlevel.com, stored in
+// strength-standards.json, looked up by sex and interpolated to the athlete's
+// exact bodyweight. The tables are in pounds, so e1RM and bodyweight are
+// converted to pounds before lookup.
 //
-// WHY THIS EXISTS: a stall on a lift means very different things at different
-// experience levels. A novice who stalls usually just needs to eat/sleep/keep
-// pushing; an advanced lifter who stalls is far likelier to be accumulating
-// fatigue that a deload fixes. Coaching consensus: intermediates deload every
-// 4-6 weeks of hard training, advanced lifters every 3-5, while novices rarely
-// need a structured deload. We turn the athlete's standing on the big lifts into
-// an experience level and feed that into the readiness model (see readiness.ts)
-// and the AI coach (context.ts).
-//
-// The bodyweight-multiple thresholds below are population approximations in the
-// spirit of StrengthLevel's tables (which are built from tens of millions of
-// logged lifts). They're intentionally coarse 5-bucket bands, not a claim of
-// per-kilo precision. Everything is a ratio of two same-unit weights (e1RM ÷
-// bodyweight), so the module is unit-agnostic: as long as the bodyweight is in
-// the same unit the athlete logs lifts in (kg or lb), the bands are correct.
-//
-// This module has no imports so it stays a pure, independently-testable step.
+// WHY THIS EXISTS: a stall means different things at different levels. We turn
+// the athlete's standing on the big lifts into an experience level that scales
+// the readiness model (readiness.ts) and informs the AI coach (context.ts).
+
+import rawData from "./strength-standards.json";
+import type { Units } from "@/lib/types";
 
 export type Sex = "male" | "female";
 
-export type StrengthLevelId =
-  | "beginner"
-  | "novice"
-  | "intermediate"
-  | "advanced"
-  | "elite";
+export type StrengthLevelId = "beginner" | "novice" | "intermediate" | "advanced" | "elite";
 
 export interface StrengthLevelMeta {
   id: StrengthLevelId;
@@ -42,132 +30,192 @@ export const STRENGTH_LEVELS: StrengthLevelMeta[] = [
   { id: "elite", label: "Elite", rank: 4 },
 ];
 
-// Canonical lifts we hold standards for, keyed by the exact `name` used in the
-// seeded exercise library so we can match by name without an extra column. We
-// only band barbell / cleanly-loaded movements where the logged weight is
-// unambiguous — dumbbell and high-variance machine lifts are deliberately left
-// out so we never mis-band someone on a per-dumbbell vs total-load mixup.
-export const STANDARD_LIFTS = [
-  "Barbell Back Squat",
-  "Barbell Bench Press",
-  "Conventional Deadlift",
-  "Overhead Press",
-  "Barbell Row",
-  "Front Squat",
-  "Incline Bench Press",
-  "Close-Grip Bench Press",
-  "Romanian Deadlift",
-  "Trap Bar Deadlift",
-  "Barbell Hip Thrust",
-  "Pendlay Row",
-  "Power Clean",
-  "Push Press",
-] as const;
+const LEVEL_KEYS = ["Beginner", "Novice", "Intermediate", "Advanced", "Elite"] as const;
 
-export type StandardLiftName = (typeof STANDARD_LIFTS)[number];
+const LB_PER_KG = 2.2046226218;
+const toLb = (v: number, units: Units) => (units === "lb" ? v : v * LB_PER_KG);
+const fromLb = (lb: number, units: Units) => (units === "lb" ? lb : lb / LB_PER_KG);
 
-// Bodyweight multiples (e1RM ÷ bodyweight) required to ENTER each level, in the
-// order [novice, intermediate, advanced, elite]. Below the first value = beginner.
-// Calibrated near StrengthLevel's male ~90kg / female ~60kg reference lifters.
-const RATIOS: Record<StandardLiftName, Record<Sex, [number, number, number, number]>> = {
-  "Barbell Back Squat": { male: [1.0, 1.5, 2.0, 2.5], female: [0.75, 1.15, 1.6, 2.05] },
-  "Barbell Bench Press": { male: [0.75, 1.1, 1.5, 1.9], female: [0.5, 0.75, 1.0, 1.3] },
-  "Conventional Deadlift": { male: [1.25, 1.75, 2.25, 2.75], female: [0.95, 1.35, 1.8, 2.3] },
-  "Overhead Press": { male: [0.5, 0.7, 0.9, 1.1], female: [0.35, 0.5, 0.7, 0.9] },
-  "Barbell Row": { male: [0.65, 0.9, 1.2, 1.5], female: [0.45, 0.65, 0.85, 1.1] },
-  "Front Squat": { male: [0.8, 1.15, 1.5, 1.9], female: [0.6, 0.9, 1.2, 1.55] },
-  "Incline Bench Press": { male: [0.6, 0.9, 1.25, 1.6], female: [0.4, 0.6, 0.85, 1.1] },
-  "Close-Grip Bench Press": { male: [0.6, 0.9, 1.25, 1.6], female: [0.4, 0.6, 0.85, 1.1] },
-  "Romanian Deadlift": { male: [0.9, 1.4, 1.9, 2.4], female: [0.65, 1.0, 1.4, 1.85] },
-  "Trap Bar Deadlift": { male: [1.3, 1.85, 2.4, 2.95], female: [1.0, 1.45, 1.9, 2.45] },
-  "Barbell Hip Thrust": { male: [1.25, 1.85, 2.5, 3.2], female: [1.0, 1.5, 2.1, 2.7] },
-  "Pendlay Row": { male: [0.6, 0.85, 1.15, 1.45], female: [0.4, 0.6, 0.8, 1.05] },
-  "Power Clean": { male: [0.75, 1.1, 1.4, 1.75], female: [0.5, 0.75, 1.0, 1.3] },
-  "Push Press": { male: [0.65, 0.9, 1.15, 1.45], female: [0.45, 0.65, 0.85, 1.1] },
+// ---- Load the scraped tables ----------------------------------------------
+
+interface Bracket {
+  bodyweight: number;
+  [level: string]: number;
+}
+type Tables = { male: Bracket[]; female: Bracket[] };
+
+interface RawLift {
+  name: string;
+  standards: { gender: string; bodyweight_unit: string; brackets: Bracket[] }[];
+}
+
+const LIFTS = new Map<string, Tables>();
+for (const lift of (rawData as { lifts: RawLift[] }).lifts) {
+  const t: Tables = { male: [], female: [] };
+  for (const s of lift.standards) {
+    const brackets = [...s.brackets].sort((a, b) => a.bodyweight - b.bodyweight);
+    if (s.gender === "male") t.male = brackets;
+    else if (s.gender === "female") t.female = brackets;
+  }
+  LIFTS.set(lift.name, t);
+}
+
+/** The 64 lifts we hold standards for (the file's canonical names). */
+export const STANDARD_LIFTS = [...LIFTS.keys()];
+
+// Old exercise-library names mapped to the file's canonical lift name, so
+// classification works whether the database has been migrated to the file's
+// names yet or not.
+const ALIAS: Record<string, string> = {
+  "Pull-Up": "Pull Ups",
+  "Push-Up": "Push Ups",
+  "EZ-Bar Curl": "EZ Bar Curl",
+  "Close-Grip Bench Press": "Close Grip Bench Press",
+  "T-Bar Row": "T Bar Row",
+  "Chin-Up": "Chin Ups",
+  "Sit-Up": "Sit Ups",
+  "Diamond Push-Up": "Diamond Push Ups",
+  "Barbell Bench Press": "Bench Press",
+  "Barbell Back Squat": "Squat",
+  "Conventional Deadlift": "Deadlift",
+  "Overhead Press": "Shoulder Press",
+  "Barbell Row": "Bent Over Row",
+  "Trap Bar Deadlift": "Hex Bar Deadlift",
+  "Skull Crusher": "Lying Tricep Extension",
+  "Bulgarian Split Squat": "Dumbbell Bulgarian Split Squat",
+  "Leg Press": "Horizontal Leg Press",
+  "Machine Chest Press": "Chest Press",
+  "Hip Adduction Machine": "Hip Adduction",
+  "Triceps Pushdown": "Tricep Pushdown",
+  "Incline Dumbbell Press": "Incline Dumbbell Bench Press",
+  "Barbell Hip Thrust": "Hip Thrust",
+  "Seated Dumbbell Press": "Seated Dumbbell Shoulder Press",
+  "Dip": "Dips",
+  "Crunch": "Crunches",
+  "Lateral Raise": "Dumbbell Lateral Raise",
+  "Single-Arm Dumbbell Row": "Dumbbell Row",
+  "Pec Deck": "Machine Chest Fly",
+  "Standing Calf Raise": "Machine Calf Raise",
 };
 
-export function isStandardLift(name: string): name is StandardLiftName {
-  return (STANDARD_LIFTS as readonly string[]).includes(name);
+/** Resolve an exercise name (file name or old alias) to the file's lift name. */
+export function resolveLift(name: string): string | null {
+  if (LIFTS.has(name)) return name;
+  const a = ALIAS[name];
+  return a && LIFTS.has(a) ? a : null;
+}
+
+export function isStandardLift(name: string): boolean {
+  return resolveLift(name) !== null;
+}
+
+// Linear interpolation of the five level thresholds (lb) at a bodyweight (lb),
+// clamped to the ends of the table.
+function thresholdsAt(brackets: Bracket[], bwLb: number): number[] | null {
+  if (brackets.length === 0) return null;
+  const first = brackets[0];
+  const last = brackets[brackets.length - 1];
+  if (bwLb <= first.bodyweight) return LEVEL_KEYS.map((k) => first[k]);
+  if (bwLb >= last.bodyweight) return LEVEL_KEYS.map((k) => last[k]);
+  for (let i = 0; i < brackets.length - 1; i++) {
+    const lo = brackets[i];
+    const hi = brackets[i + 1];
+    if (bwLb >= lo.bodyweight && bwLb <= hi.bodyweight) {
+      const t = (bwLb - lo.bodyweight) / (hi.bodyweight - lo.bodyweight);
+      return LEVEL_KEYS.map((k) => lo[k] + t * (hi[k] - lo[k]));
+    }
+  }
+  return LEVEL_KEYS.map((k) => last[k]);
 }
 
 export interface LiftStandard {
-  lift: StandardLiftName;
+  lift: string;
   level: StrengthLevelMeta;
-  ratio: number; // e1RM / bodyweight (rounded to 2dp)
+  ratio: number; // e1RM / bodyweight (rounded to 2dp), unit-invariant
   /** 0..1 progress from the current level's entry toward the next level's entry. */
   progressToNext: number;
-  /** e1RM needed to reach the next level (null if already elite). */
+  /** e1RM needed to reach the next level, in the athlete's unit (null if elite). */
   nextLevelE1RM: number | null;
   nextLevel: StrengthLevelMeta | null;
 }
 
 /**
- * Classify one lift from an estimated 1RM and the athlete's bodyweight. The
- * e1RM and bodyweight must be in the same unit (kg or lb); the result is a
- * unit-agnostic ratio band.
+ * Classify one lift from an estimated 1RM and bodyweight in the athlete's unit.
+ * Looks up the exact strengthlevel.com table for the lift and sex, interpolated
+ * to the athlete's bodyweight.
  */
 export function classifyLift(
-  lift: StandardLiftName,
+  name: string,
   e1rm: number,
   bodyweight: number,
   sex: Sex,
+  units: Units,
 ): LiftStandard | null {
-  if (!(e1rm > 0) || !(bodyweight > 0)) return null;
+  const lift = resolveLift(name);
+  if (!lift || !(e1rm > 0) || !(bodyweight > 0)) return null;
 
-  // Entry e1RM for each level = bodyweight-multiple × bodyweight.
-  const thresholds = RATIOS[lift][sex].map((r) => r * bodyweight); // [nov, int, adv, eli]
-  const ratio = e1rm / bodyweight;
+  const brackets = sex === "male" ? LIFTS.get(lift)!.male : LIFTS.get(lift)!.female;
+  const e1rmLb = toLb(e1rm, units);
+  const bwLb = toLb(bodyweight, units);
+  const thr = thresholdsAt(brackets, bwLb); // [Beginner, Novice, Intermediate, Advanced, Elite]
+  if (!thr) return null;
 
-  // rank = number of thresholds cleared (0 => beginner .. 4 => elite)
-  let rank = 0;
-  for (const t of thresholds) {
-    if (e1rm >= t) rank += 1;
+  // Number of level thresholds cleared; level rank = max(0, cleared - 1) since
+  // clearing the Beginner threshold means you ARE a Beginner.
+  let cleared = 0;
+  for (const t of thr) {
+    if (e1rmLb >= t) cleared += 1;
     else break;
   }
-
+  const rank = Math.max(0, cleared - 1);
   const level = STRENGTH_LEVELS[rank];
   const nextLevel = rank < 4 ? STRENGTH_LEVELS[rank + 1] : null;
 
-  // Lower/upper e1RM bounds of the current band for the progress bar.
-  const lower = rank === 0 ? 0 : thresholds[rank - 1];
-  const upper = rank < 4 ? thresholds[rank] : thresholds[3];
+  const lower = thr[rank];
+  const upper = rank < 4 ? thr[rank + 1] : thr[4];
   const progressToNext =
-    rank >= 4 ? 1 : upper > lower ? Math.max(0, Math.min(1, (e1rm - lower) / (upper - lower))) : 1;
+    rank >= 4 ? 1 : upper > lower ? Math.max(0, Math.min(1, (e1rmLb - lower) / (upper - lower))) : 1;
 
   return {
     lift,
     level,
-    ratio: Math.round(ratio * 100) / 100,
+    ratio: Math.round((e1rm / bodyweight) * 100) / 100,
     progressToNext,
-    nextLevelE1RM: nextLevel ? Math.round(thresholds[rank]) : null,
+    nextLevelE1RM: nextLevel ? Math.round(fromLb(thr[rank + 1], units)) : null,
     nextLevel,
   };
 }
 
 export interface OverallStrength {
   level: StrengthLevelMeta;
-  /** Average rank across classified lifts (0..4, fractional). */
   rankAvg: number;
   perLift: LiftStandard[];
 }
 
 /**
- * Roll several lifts up into one experience level — the average band across
- * whatever standard lifts the athlete has data for. Returns null when bodyweight
- * is unknown or no standard lift has been logged.
+ * Roll several lifts up into one experience level: the average band across the
+ * standard lifts the athlete has logged. Null when bodyweight is unknown or no
+ * standard lift has been logged.
  */
 export function overallStrength(
   e1rmByLift: Map<string, number>,
   bodyweight: number | null | undefined,
   sex: Sex | null | undefined,
+  units: Units,
 ): OverallStrength | null {
   if (!bodyweight || !sex) return null;
 
+  // Resolve aliases and keep the best e1RM per canonical lift.
+  const byFile = new Map<string, number>();
+  for (const [name, e] of e1rmByLift) {
+    const lift = resolveLift(name);
+    if (!lift || !(e > 0)) continue;
+    byFile.set(lift, Math.max(byFile.get(lift) ?? 0, e));
+  }
+
   const perLift: LiftStandard[] = [];
-  for (const lift of STANDARD_LIFTS) {
-    const e = e1rmByLift.get(lift);
-    if (!e) continue;
-    const c = classifyLift(lift, e, bodyweight, sex);
+  for (const [lift, e] of byFile) {
+    const c = classifyLift(lift, e, bodyweight, sex, units);
     if (c) perLift.push(c);
   }
   if (perLift.length === 0) return null;
@@ -177,18 +225,11 @@ export function overallStrength(
   return { level, rankAvg, perLift };
 }
 
-// --- Experience → deload cadence -------------------------------------------
-// Maps an experience level to how long an athlete can stack hard weeks before a
-// deload is warranted. Used by readiness.ts to scale the "weeks of hard
-// training" fatigue ramp: novices get a long runway, elites a short one. This is
-// the algorithmic payoff of knowing the athlete's level.
+// --- Experience -> deload cadence -------------------------------------------
 
 export interface DeloadCadence {
-  /** Hard-week count at which fatigue from time-under-load starts to count. */
   lowWeeks: number;
-  /** Hard-week count at which that fatigue maxes out. */
   highWeeks: number;
-  /** Plain-language cadence guidance, e.g. "every 4-6 weeks". */
   note: string;
 }
 
@@ -200,7 +241,6 @@ const CADENCE: Record<StrengthLevelId, DeloadCadence> = {
   elite: { lowWeeks: 3, highWeeks: 6, note: "deload often, every 3 to 4 weeks of hard training" },
 };
 
-/** Deload cadence for a level; defaults to intermediate when level is unknown. */
 export function cadenceFor(level: StrengthLevelId | null | undefined): DeloadCadence {
   return CADENCE[level ?? "intermediate"];
 }

@@ -25,7 +25,7 @@ function flatSquatWeeks(): TrainingSet[] {
         muscleGroup: "Quads",
         isMajor: true,
         reps: 5,
-        weight: 160,
+        weight: 170,
         rpe: 8,
       });
     }
@@ -37,7 +37,7 @@ describe("readiness — experience-adjusted deload cadence", () => {
   it("an elite lifter accrues more time-under-load fatigue than an intermediate", () => {
     const sets = flatSquatWeeks();
     const inter = computeReadiness(sets, [], now); // no bodyweight -> intermediate default
-    const elite = computeReadiness(sets, [], now, { bodyweight: 70, sex: "male" }); // 160@70 -> elite
+    const elite = computeReadiness(sets, [], now, { bodyweight: 70, sex: "male", units: "kg" }); // strong squat at 70kg -> elite
 
     expect(inter.experienceLabel).toBeNull();
     expect(elite.experienceLabel).toBe("Elite");

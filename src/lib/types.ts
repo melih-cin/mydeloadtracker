@@ -23,6 +23,8 @@ export interface Exercise {
   movement_pattern: string | null;
   equipment: string | null;
   is_major: boolean;
+  /** Retired from the picker by the standards-library migration, kept for history. */
+  hidden?: boolean;
   created_at: string;
 }
 

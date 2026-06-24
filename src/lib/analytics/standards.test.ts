@@ -1,33 +1,42 @@
 import { describe, it, expect } from "vitest";
-import { classifyLift, overallStrength, cadenceFor } from "@/lib/analytics/standards";
+import { classifyLift, overallStrength, cadenceFor, isStandardLift } from "@/lib/analytics/standards";
 
-describe("strength standards", () => {
-  it("bands a 140kg squat e1RM at 90kg bodyweight as intermediate", () => {
-    const s = classifyLift("Barbell Back Squat", 140, 90, "male");
-    expect(s?.level.id).toBe("intermediate");
-    expect(s?.nextLevel?.id).toBe("advanced");
-    expect(s?.progressToNext).toBeGreaterThanOrEqual(0);
-    expect(s?.progressToNext).toBeLessThanOrEqual(1);
-  });
-
-  it("bands a sub-novice squat as beginner and a 2.6x squat as elite", () => {
-    expect(classifyLift("Barbell Back Squat", 60, 90, "male")?.level.id).toBe("beginner");
-    const elite = classifyLift("Barbell Back Squat", 240, 90, "male");
-    expect(elite?.level.id).toBe("elite");
+// Reference: strength-standards.json, Squat male @ 200 lb bodyweight =
+//   [Beginner 186, Novice 248, Intermediate 323, Advanced 408, Elite 499]
+describe("strength standards (strengthlevel.com tables)", () => {
+  it("bands a squat against the file's male table", () => {
+    expect(classifyLift("Squat", 100, 200, "male", "lb")?.level.id).toBe("beginner"); // < 186
+    expect(classifyLift("Squat", 250, 200, "male", "lb")?.level.id).toBe("novice"); // 248..323
+    expect(classifyLift("Squat", 400, 200, "male", "lb")?.level.id).toBe("intermediate"); // 323..408
+    const elite = classifyLift("Squat", 520, 200, "male", "lb");
+    expect(elite?.level.id).toBe("elite"); // >= 499
     expect(elite?.nextLevel).toBeNull();
     expect(elite?.nextLevelE1RM).toBeNull();
   });
 
-  it("returns null without a valid bodyweight or e1RM", () => {
-    expect(classifyLift("Barbell Bench Press", 100, 0, "male")).toBeNull();
-    expect(classifyLift("Barbell Bench Press", 0, 90, "male")).toBeNull();
+  it("resolves the old library names through the alias map", () => {
+    expect(isStandardLift("Barbell Back Squat")).toBe(true); // alias -> Squat
+    expect(classifyLift("Barbell Back Squat", 400, 200, "male", "lb")?.lift).toBe("Squat");
+    expect(isStandardLift("Bicycle Crunch")).toBe(false);
   });
 
-  it("overall strength needs bodyweight, sex, and at least one standard lift", () => {
-    const e1rms = new Map([["Barbell Back Squat", 140]]);
-    expect(overallStrength(e1rms, null, "male")).toBeNull();
-    expect(overallStrength(new Map([["Lateral Raise", 20]]), 90, "male")).toBeNull();
-    expect(overallStrength(e1rms, 90, "male")?.level).toBeTruthy();
+  it("converts kilogram inputs to pounds before lookup", () => {
+    const lb = classifyLift("Bench Press", 226, 200, "male", "lb")?.level.id;
+    const kg = classifyLift("Bench Press", 226 / 2.2046226218, 200 / 2.2046226218, "male", "kg")?.level.id;
+    expect(kg).toBe(lb);
+  });
+
+  it("returns null without a valid bodyweight, e1RM, or known lift", () => {
+    expect(classifyLift("Squat", 100, 0, "male", "lb")).toBeNull();
+    expect(classifyLift("Squat", 0, 200, "male", "lb")).toBeNull();
+    expect(classifyLift("Not A Real Lift", 100, 200, "male", "lb")).toBeNull();
+  });
+
+  it("overall strength needs bodyweight, sex, and a standard lift", () => {
+    const e1rms = new Map([["Squat", 400]]);
+    expect(overallStrength(e1rms, null, "male", "lb")).toBeNull();
+    expect(overallStrength(new Map([["Bicycle Crunch", 50]]), 200, "male", "lb")).toBeNull();
+    expect(overallStrength(e1rms, 200, "male", "lb")?.level).toBeTruthy();
   });
 
   it("deload cadence shortens as experience rises; defaults to intermediate", () => {

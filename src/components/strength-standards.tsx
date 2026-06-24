@@ -105,17 +105,17 @@ export function StrengthStandards({
     [lifts],
   );
 
-  const overall = ready ? overallStrength(e1rmByLift, bwNum, sex) : null;
+  const overall = ready ? overallStrength(e1rmByLift, bwNum, sex, units) : null;
   const cadence = cadenceFor(overall?.level.id);
 
   const perLift = useMemo(() => {
     if (!ready) return [];
     return lifts
       .filter((l) => isStandardLift(l.name) && l.e1rm > 0)
-      .map((l) => classifyLift(l.name as Parameters<typeof classifyLift>[0], l.e1rm, bwNum, sex!))
+      .map((l) => classifyLift(l.name, l.e1rm, bwNum, sex!, units))
       .filter((x): x is NonNullable<typeof x> => x != null)
       .sort((a, b) => b.level.rank - a.level.rank || b.ratio - a.ratio);
-  }, [lifts, ready, bwNum, sex]);
+  }, [lifts, ready, bwNum, sex, units]);
 
   return (
     <div className="card">

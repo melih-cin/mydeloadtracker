@@ -44,3 +44,4 @@ docs/YC_APPLICATION.md
 # Claude Code local tooling (not for the public repo)
 .claude/settings.local.json
 .claude/launch.json
+.env*

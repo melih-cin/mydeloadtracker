@@ -22,10 +22,11 @@ import { estimate1RM, round1 } from "./epley";
 import {
   cadenceFor,
   overallStrength,
-  STANDARD_LIFTS,
+  isStandardLift,
   type DeloadCadence,
   type Sex,
 } from "./standards";
+import type { Units } from "@/lib/types";
 
 export type Tone = "good" | "caution" | "bad";
 
@@ -63,6 +64,8 @@ export interface ReadinessOptions {
   /** Athlete bodyweight in their logging unit (kg or lb); enables experience tuning. */
   bodyweight?: number | null;
   sex?: Sex | null;
+  /** The athlete's logging unit, so strength standards convert to pounds. */
+  units?: Units;
 }
 
 const WINDOW_WEEKS = 6;
@@ -286,10 +289,9 @@ function factorTimeUnderLoad(
 
 /** Best estimated 1RM per standard lift, keyed by exercise name (for banding). */
 function bestE1RMByStandardLift(sets: TrainingSet[]): Map<string, number> {
-  const names = new Set<string>(STANDARD_LIFTS);
   const best = new Map<string, number>();
   for (const s of sets) {
-    if (!names.has(s.exerciseName)) continue;
+    if (!isStandardLift(s.exerciseName)) continue;
     const e = estimate1RM(s.weight, s.reps);
     if (e > (best.get(s.exerciseName) ?? 0)) best.set(s.exerciseName, e);
   }
@@ -462,6 +464,7 @@ export function computeReadiness(
     bestE1RMByStandardLift(sets),
     opts.bodyweight,
     opts.sex,
+    opts.units ?? "kg",
   );
   const cadence: DeloadCadence = cadenceFor(overall?.level.id);
 

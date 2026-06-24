@@ -43,6 +43,7 @@ export function buildCoachContext(
   const readiness = computeReadiness(sets, checkins, now, {
     bodyweight: profile?.bodyweight ?? null,
     sex: profile?.sex ?? null,
+    units,
   });
   const volume = buildVolumeReport(sets, 8, now);
   const setVolume = buildSetVolume(sets, 4, 8, now);
@@ -51,7 +52,7 @@ export function buildCoachContext(
   // Strength standards (StrengthLevel-style) — banding each main lift by
   // bodyweight-relative e1RM, used to right-size deload cadence and advice.
   const e1rmByLift = new Map(records.map((r) => [r.exerciseName, r.bestE1RM]));
-  const strength = overallStrength(e1rmByLift, profile?.bodyweight ?? null, profile?.sex ?? null);
+  const strength = overallStrength(e1rmByLift, profile?.bodyweight ?? null, profile?.sex ?? null, units);
 
   const lines: string[] = [];
   lines.push(`ATHLETE: ${name} (weights in ${units})`);

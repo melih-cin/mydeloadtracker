@@ -50,7 +50,7 @@ export default function DemoPage({ searchParams }: { searchParams: { units?: str
   const sets = buildSampleSets(now, units);
   const checkins = buildSampleCheckins(now);
 
-  const opts = { bodyweight, sex: SAMPLE_SEX };
+  const opts = { bodyweight, sex: SAMPLE_SEX, units };
   const deload = detectDeload(sets, now);
   const readiness = computeReadiness(sets, checkins, now, opts);
   const call = buildTodaysCall(readiness, deload);

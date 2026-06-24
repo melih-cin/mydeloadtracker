@@ -64,7 +64,10 @@ export async function getExercises(supabase: SupabaseClient): Promise<Exercise[]
     .order("is_major", { ascending: false })
     .order("name", { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Exercise[];
+  // Hide exercises the library migration retired (kept in the table so old
+  // history still resolves). Filtered in JS so this is safe whether or not the
+  // `hidden` column exists yet.
+  return ((data ?? []) as Exercise[]).filter((e) => !e.hidden);
 }
 
 export async function getProfile(supabase: SupabaseClient): Promise<Profile | null> {

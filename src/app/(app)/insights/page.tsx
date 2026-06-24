@@ -38,7 +38,7 @@ export default async function InsightsPage() {
     );
   }
 
-  const opts = { bodyweight: profile?.bodyweight ?? null, sex: profile?.sex ?? null };
+  const opts = { bodyweight: profile?.bodyweight ?? null, sex: profile?.sex ?? null, units };
   const deload = detectDeload(sets);
   const readiness = computeReadiness(sets, checkins, new Date(), opts);
   const call = buildTodaysCall(readiness, deload);
