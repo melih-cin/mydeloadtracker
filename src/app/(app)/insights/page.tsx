@@ -5,6 +5,7 @@ import { getCheckins, getProfile, getTrainingSets } from "@/lib/data";
 import { localDateKey } from "@/lib/analytics/dates";
 import { detectDeload } from "@/lib/analytics/deload";
 import { computeReadiness } from "@/lib/analytics/readiness";
+import { buildReadinessTrend } from "@/lib/analytics/trend";
 import { buildNextSessions } from "@/lib/analytics/progression";
 import { buildTodaysCall } from "@/lib/ui";
 import { TodaysCall } from "@/components/todays-call";
@@ -44,18 +45,7 @@ export default async function InsightsPage() {
   const call = buildTodaysCall(readiness, deload);
   const nextSessions = buildNextSessions(sets, { units, deload: deload.recommended });
 
-  const now = new Date();
-  const readinessTrend: number[] = [];
-  for (let i = 7; i >= 0; i--) {
-    const asOf = new Date(now);
-    asOf.setDate(asOf.getDate() - i * 7);
-    const asOfIso = asOf.toISOString();
-    const sUpTo = sets.filter((s) => s.date <= asOfIso);
-    if (sUpTo.length === 0) continue;
-    const cUpTo = checkins.filter((c) => c.date <= localDateKey(asOf));
-    readinessTrend.push(computeReadiness(sUpTo, cUpTo, asOf, opts).score);
-  }
-  if (readinessTrend.length === 0) readinessTrend.push(readiness.score);
+  const readinessTrend = buildReadinessTrend(sets, checkins, new Date(), opts);
 
   return (
     <div className="space-y-5">

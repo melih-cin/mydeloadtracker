@@ -49,7 +49,7 @@ export default async function ProgressPage() {
 
   const standardLifts = records
     .filter((r) => isStandardLift(r.exerciseName))
-    .map((r) => ({ name: r.exerciseName, e1rm: r.bestE1RM }));
+    .map((r) => ({ name: r.exerciseName, e1rm: r.bestE1RM, reps: r.bestReps }));
 
   const lifts: LiftDetail[] = trends.map((t) => {
     const s4 = status4.get(t.exerciseId);

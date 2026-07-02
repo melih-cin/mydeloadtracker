@@ -5,6 +5,7 @@ import { getCheckins, getProfile, getTrainingSets } from "@/lib/data";
 import { localDateKey } from "@/lib/analytics/dates";
 import { detectDeload } from "@/lib/analytics/deload";
 import { computeReadiness } from "@/lib/analytics/readiness";
+import { buildReadinessTrend } from "@/lib/analytics/trend";
 import { buildProgressReport } from "@/lib/analytics/progress";
 import { buildNextSessions } from "@/lib/analytics/progression";
 import { buildTodaysCall, buildActivity } from "@/lib/ui";
@@ -60,17 +61,7 @@ export default async function DashboardPage() {
   const call = buildTodaysCall(readiness, deload);
 
   const now = new Date();
-  const readinessTrend: number[] = [];
-  for (let i = 7; i >= 0; i--) {
-    const asOf = new Date(now);
-    asOf.setDate(asOf.getDate() - i * 7);
-    const asOfIso = asOf.toISOString();
-    const sUpTo = sets.filter((s) => s.date <= asOfIso);
-    if (sUpTo.length === 0) continue;
-    const cUpTo = checkins.filter((c) => c.date <= localDateKey(asOf));
-    readinessTrend.push(computeReadiness(sUpTo, cUpTo, asOf, opts).score);
-  }
-  if (readinessTrend.length === 0) readinessTrend.push(readiness.score);
+  const readinessTrend = buildReadinessTrend(sets, checkins, now, opts);
 
   const activity = buildActivity(new Set(sets.map((s) => localDateKey(new Date(s.date)))), now);
   const nextCount = buildNextSessions(sets, { units, deload: deload.recommended }).length;

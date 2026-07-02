@@ -13,6 +13,8 @@ export interface PersonalRecord {
   bestE1RM: number;
   bestE1RMWeight: number;
   bestE1RMReps: number;
+  /** Most reps in any single set — the metric bodyweight standards use. */
+  bestReps: number;
   achievedAt: string; // ISO date of the best-e1RM set
 }
 
@@ -28,10 +30,12 @@ export function buildRecords(sets: TrainingSet[]): PersonalRecord[] {
   for (const [exerciseId, exSets] of byExercise) {
     let maxWeight = 0;
     let bestE1RM = 0;
+    let bestReps = 0;
     let bestSet: TrainingSet | null = null;
 
     for (const s of exSets) {
       maxWeight = Math.max(maxWeight, s.weight);
+      bestReps = Math.max(bestReps, s.reps);
       const e = estimate1RM(s.weight, s.reps);
       if (e > bestE1RM) {
         bestE1RM = e;
@@ -49,6 +53,7 @@ export function buildRecords(sets: TrainingSet[]): PersonalRecord[] {
       bestE1RM: round1(bestE1RM),
       bestE1RMWeight: bestSet?.weight ?? 0,
       bestE1RMReps: bestSet?.reps ?? 0,
+      bestReps,
       achievedAt: bestSet?.date ?? meta.date,
     });
   }

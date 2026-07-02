@@ -394,7 +394,7 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
                   </select>
                 </div>
                 <div>
-                  <label className="label">Weight ({units})</label>
+                  <label className="label">Weight ({units}) · total on the bar</label>
                   <input
                     type="number"
                     inputMode="decimal"

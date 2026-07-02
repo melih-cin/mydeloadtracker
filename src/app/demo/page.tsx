@@ -4,6 +4,7 @@ import { buildSampleSets, buildSampleCheckins, sampleBodyweight, SAMPLE_SEX } fr
 import type { Units } from "@/lib/types";
 import { detectDeload } from "@/lib/analytics/deload";
 import { computeReadiness } from "@/lib/analytics/readiness";
+import { buildReadinessTrend } from "@/lib/analytics/trend";
 import { buildSetVolume } from "@/lib/analytics/setVolume";
 import { buildRecords } from "@/lib/analytics/records";
 import { buildProgressReport } from "@/lib/analytics/progress";
@@ -56,17 +57,7 @@ export default function DemoPage({ searchParams }: { searchParams: { units?: str
   const call = buildTodaysCall(readiness, deload);
 
   // Honest readiness trend, re-scored as-of each weekly point on the sample data.
-  const readinessTrend: number[] = [];
-  for (let i = 7; i >= 0; i--) {
-    const asOf = new Date(now);
-    asOf.setDate(asOf.getDate() - i * 7);
-    const asOfIso = asOf.toISOString();
-    const sUpTo = sets.filter((s) => s.date <= asOfIso);
-    if (sUpTo.length === 0) continue;
-    const cUpTo = checkins.filter((c) => c.date <= localDateKey(asOf));
-    readinessTrend.push(computeReadiness(sUpTo, cUpTo, asOf, opts).score);
-  }
-  if (readinessTrend.length === 0) readinessTrend.push(readiness.score);
+  const readinessTrend = buildReadinessTrend(sets, checkins, now, opts);
 
   const trainedKeys = new Set(sets.map((s) => localDateKey(new Date(s.date))));
   const activity = buildActivity(trainedKeys, now);
@@ -78,7 +69,7 @@ export default function DemoPage({ searchParams }: { searchParams: { units?: str
 
   const standardLifts = records
     .filter((r) => isStandardLift(r.exerciseName))
-    .map((r) => ({ name: r.exerciseName, e1rm: r.bestE1RM }));
+    .map((r) => ({ name: r.exerciseName, e1rm: r.bestE1RM, reps: r.bestReps }));
 
   const sessions = new Set(sets.map((s) => s.sessionId)).size;
   const progressing = progress.filter((p) => p.status === "progressing").length;

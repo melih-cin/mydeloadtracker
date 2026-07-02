@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile, getWearableStatus } from "@/lib/data";
 import { ProfileForm } from "@/components/profile-form";
 import { WearableConnect } from "@/components/wearable-connect";
+import { AppleHealthCard } from "@/components/apple-health-card";
 import { ouraConfigured } from "@/lib/wearables/oura";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,10 @@ export default async function SettingsPage({
     data: { user },
   } = await supabase.auth.getUser();
   const profile = await getProfile(supabase);
-  const oura = await getWearableStatus(supabase, "oura");
+  const [oura, apple] = await Promise.all([
+    getWearableStatus(supabase, "oura"),
+    getWearableStatus(supabase, "apple_health"),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -27,6 +31,7 @@ export default async function SettingsPage({
         </p>
       </div>
       <ProfileForm profile={profile} />
+      <AppleHealthCard connected={apple.connected} lastSync={apple.lastSync} />
       <WearableConnect
         configured={ouraConfigured()}
         connected={oura.connected}

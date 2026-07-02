@@ -176,6 +176,7 @@ export function OnboardingForm({
         <h2 className="font-semibold">Your main lifts</h2>
         <p className="mb-4 text-xs text-muted">
           Add a recent working set for each, and we&apos;ll rank it and set your next target.
+          Weights are the total on the bar, bar included.
         </p>
         <div className="space-y-2">
           {exercises.map((e) => {

@@ -109,53 +109,101 @@ export function isStandardLift(name: string): boolean {
   return resolveLift(name) !== null;
 }
 
-// Linear interpolation of the five level thresholds (lb) at a bodyweight (lb),
+// Bodyweight movements whose strengthlevel.com standards are expressed in REPS
+// performed at bodyweight, not in pounds lifted (their tables read 6 / 12 / 21,
+// clearly rep counts). Classifying these by Brzycki-pounds would be nonsense.
+const REPS_LIFTS = new Set([
+  "Pull Ups",
+  "Chin Ups",
+  "Neutral Grip Pull Ups",
+  "Muscle Ups",
+  "Push Ups",
+  "Diamond Push Ups",
+  "One Arm Push Ups",
+  "Dips",
+  "Crunches",
+  "Sit Ups",
+  "Bodyweight Squat",
+]);
+
+export type LiftMetric = "weight" | "reps";
+
+/** How a lift's standard is measured: pounds of e1RM, or reps at bodyweight. */
+export function liftMetric(name: string): LiftMetric | null {
+  const lift = resolveLift(name);
+  if (!lift) return null;
+  return REPS_LIFTS.has(lift) ? "reps" : "weight";
+}
+
+// A null cell means strengthlevel shows "< 1" for that tier (common for the
+// Beginner column of hard bodyweight moves) — the entry bar is effectively zero.
+const cell = (b: Bracket, k: string): number => b[k] ?? 0;
+
+// Linear interpolation of the five level thresholds at a bodyweight (lb),
 // clamped to the ends of the table.
 function thresholdsAt(brackets: Bracket[], bwLb: number): number[] | null {
   if (brackets.length === 0) return null;
   const first = brackets[0];
   const last = brackets[brackets.length - 1];
-  if (bwLb <= first.bodyweight) return LEVEL_KEYS.map((k) => first[k]);
-  if (bwLb >= last.bodyweight) return LEVEL_KEYS.map((k) => last[k]);
+  if (bwLb <= first.bodyweight) return LEVEL_KEYS.map((k) => cell(first, k));
+  if (bwLb >= last.bodyweight) return LEVEL_KEYS.map((k) => cell(last, k));
   for (let i = 0; i < brackets.length - 1; i++) {
     const lo = brackets[i];
     const hi = brackets[i + 1];
     if (bwLb >= lo.bodyweight && bwLb <= hi.bodyweight) {
       const t = (bwLb - lo.bodyweight) / (hi.bodyweight - lo.bodyweight);
-      return LEVEL_KEYS.map((k) => lo[k] + t * (hi[k] - lo[k]));
+      return LEVEL_KEYS.map((k) => cell(lo, k) + t * (cell(hi, k) - cell(lo, k)));
     }
   }
-  return LEVEL_KEYS.map((k) => last[k]);
+  return LEVEL_KEYS.map((k) => cell(last, k));
+}
+
+/** An athlete's best performance on a lift, in the shape standards understand. */
+export interface LiftPerf {
+  /** Best estimated 1RM, in the athlete's unit. Used for weight-metric lifts. */
+  e1rm?: number;
+  /** Most reps in a single set. Used for reps-metric (bodyweight) lifts. */
+  reps?: number;
 }
 
 export interface LiftStandard {
   lift: string;
+  metric: LiftMetric;
   level: StrengthLevelMeta;
-  ratio: number; // e1RM / bodyweight (rounded to 2dp), unit-invariant
+  /** Weight lifts: e1RM ÷ bodyweight (2dp). Reps lifts: the rep count itself. */
+  ratio: number;
   /** 0..1 progress from the current level's entry toward the next level's entry. */
   progressToNext: number;
-  /** e1RM needed to reach the next level, in the athlete's unit (null if elite). */
-  nextLevelE1RM: number | null;
+  /**
+   * Performance needed to reach the next level (null if elite): e1RM in the
+   * athlete's unit for weight lifts, a rep count for reps lifts.
+   */
+  nextLevelValue: number | null;
   nextLevel: StrengthLevelMeta | null;
 }
 
 /**
- * Classify one lift from an estimated 1RM and bodyweight in the athlete's unit.
- * Looks up the exact strengthlevel.com table for the lift and sex, interpolated
- * to the athlete's bodyweight.
+ * Classify one lift against the exact strengthlevel.com table for the lift and
+ * sex, interpolated to the athlete's bodyweight. Weight-metric lifts compare
+ * e1RM in pounds; reps-metric (bodyweight) lifts compare reps in a single set.
  */
 export function classifyLift(
   name: string,
-  e1rm: number,
+  perf: LiftPerf,
   bodyweight: number,
   sex: Sex,
   units: Units,
 ): LiftStandard | null {
   const lift = resolveLift(name);
-  if (!lift || !(e1rm > 0) || !(bodyweight > 0)) return null;
+  if (!lift || !(bodyweight > 0)) return null;
+
+  const metric: LiftMetric = REPS_LIFTS.has(lift) ? "reps" : "weight";
+  const raw = metric === "reps" ? perf.reps : perf.e1rm;
+  if (!(raw != null && raw > 0)) return null;
+  // Reps compare as-is; weights convert to the table's pounds.
+  const value = metric === "reps" ? raw : toLb(raw, units);
 
   const brackets = sex === "male" ? LIFTS.get(lift)!.male : LIFTS.get(lift)!.female;
-  const e1rmLb = toLb(e1rm, units);
   const bwLb = toLb(bodyweight, units);
   const thr = thresholdsAt(brackets, bwLb); // [Beginner, Novice, Intermediate, Advanced, Elite]
   if (!thr) return null;
@@ -164,7 +212,7 @@ export function classifyLift(
   // clearing the Beginner threshold means you ARE a Beginner.
   let cleared = 0;
   for (const t of thr) {
-    if (e1rmLb >= t) cleared += 1;
+    if (value >= t) cleared += 1;
     else break;
   }
   const rank = Math.max(0, cleared - 1);
@@ -174,14 +222,18 @@ export function classifyLift(
   const lower = thr[rank];
   const upper = rank < 4 ? thr[rank + 1] : thr[4];
   const progressToNext =
-    rank >= 4 ? 1 : upper > lower ? Math.max(0, Math.min(1, (e1rmLb - lower) / (upper - lower))) : 1;
+    rank >= 4 ? 1 : upper > lower ? Math.max(0, Math.min(1, (value - lower) / (upper - lower))) : 1;
 
+  const nextRaw = nextLevel ? thr[rank + 1] : null;
   return {
     lift,
+    metric,
     level,
-    ratio: Math.round((e1rm / bodyweight) * 100) / 100,
+    ratio:
+      metric === "reps" ? raw : Math.round((raw / bodyweight) * 100) / 100,
     progressToNext,
-    nextLevelE1RM: nextLevel ? Math.round(fromLb(thr[rank + 1], units)) : null,
+    nextLevelValue:
+      nextRaw == null ? null : Math.round(metric === "reps" ? nextRaw : fromLb(nextRaw, units)),
     nextLevel,
   };
 }
@@ -198,24 +250,28 @@ export interface OverallStrength {
  * standard lift has been logged.
  */
 export function overallStrength(
-  e1rmByLift: Map<string, number>,
+  perfByLift: Map<string, LiftPerf>,
   bodyweight: number | null | undefined,
   sex: Sex | null | undefined,
   units: Units,
 ): OverallStrength | null {
   if (!bodyweight || !sex) return null;
 
-  // Resolve aliases and keep the best e1RM per canonical lift.
-  const byFile = new Map<string, number>();
-  for (const [name, e] of e1rmByLift) {
+  // Resolve aliases and keep the best performance per canonical lift.
+  const byFile = new Map<string, LiftPerf>();
+  for (const [name, p] of perfByLift) {
     const lift = resolveLift(name);
-    if (!lift || !(e > 0)) continue;
-    byFile.set(lift, Math.max(byFile.get(lift) ?? 0, e));
+    if (!lift) continue;
+    const prev = byFile.get(lift) ?? {};
+    byFile.set(lift, {
+      e1rm: Math.max(prev.e1rm ?? 0, p.e1rm ?? 0),
+      reps: Math.max(prev.reps ?? 0, p.reps ?? 0),
+    });
   }
 
   const perLift: LiftStandard[] = [];
-  for (const [lift, e] of byFile) {
-    const c = classifyLift(lift, e, bodyweight, sex, units);
+  for (const [lift, p] of byFile) {
+    const c = classifyLift(lift, p, bodyweight, sex, units);
     if (c) perLift.push(c);
   }
   if (perLift.length === 0) return null;

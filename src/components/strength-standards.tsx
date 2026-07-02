@@ -45,7 +45,7 @@ export function StrengthStandards({
   initialBodyweight,
   initialSex,
 }: {
-  lifts: { name: string; e1rm: number }[];
+  lifts: { name: string; e1rm: number; reps?: number }[];
   units: Units;
   initialBodyweight: number | null;
   initialSex: Sex | null;
@@ -100,21 +100,26 @@ export function StrengthStandards({
   const bwNum = Number(bodyweight);
   const ready = Number.isFinite(bwNum) && bwNum > 0 && sex != null;
 
-  const e1rmByLift = useMemo(
-    () => new Map(lifts.filter((l) => isStandardLift(l.name)).map((l) => [l.name, l.e1rm])),
+  const perfByLift = useMemo(
+    () =>
+      new Map(
+        lifts
+          .filter((l) => isStandardLift(l.name))
+          .map((l) => [l.name, { e1rm: l.e1rm, reps: l.reps ?? 0 }]),
+      ),
     [lifts],
   );
 
-  const overall = ready ? overallStrength(e1rmByLift, bwNum, sex, units) : null;
+  const overall = ready ? overallStrength(perfByLift, bwNum, sex, units) : null;
   const cadence = cadenceFor(overall?.level.id);
 
   const perLift = useMemo(() => {
     if (!ready) return [];
     return lifts
-      .filter((l) => isStandardLift(l.name) && l.e1rm > 0)
-      .map((l) => classifyLift(l.name, l.e1rm, bwNum, sex!, units))
+      .filter((l) => isStandardLift(l.name))
+      .map((l) => classifyLift(l.name, { e1rm: l.e1rm, reps: l.reps ?? 0 }, bwNum, sex!, units))
       .filter((x): x is NonNullable<typeof x> => x != null)
-      .sort((a, b) => b.level.rank - a.level.rank || b.ratio - a.ratio);
+      .sort((a, b) => b.level.rank - a.level.rank || b.progressToNext - a.progressToNext);
   }, [lifts, ready, bwNum, sex, units]);
 
   return (
@@ -195,7 +200,9 @@ export function StrengthStandards({
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{s.lift}</span>
                       <span className="flex items-center gap-2">
-                        <span className="tabular-nums text-muted">{s.ratio}×</span>
+                        <span className="tabular-nums text-muted">
+                          {s.metric === "reps" ? `${s.ratio} reps` : `${s.ratio}×`}
+                        </span>
                         <LevelBadge id={s.level.id} label={s.level.label} />
                       </span>
                     </div>
@@ -207,7 +214,9 @@ export function StrengthStandards({
                     </div>
                     <p className="mt-1 text-[11px] text-muted">
                       {s.nextLevel
-                        ? `${Math.round(s.progressToNext * 100)}% to ${s.nextLevel.label} · ~${s.nextLevelE1RM} ${units} e1RM`
+                        ? `${Math.round(s.progressToNext * 100)}% to ${s.nextLevel.label} · ~${s.nextLevelValue} ${
+                            s.metric === "reps" ? "reps" : `${units} e1RM`
+                          }`
                         : "Top band, Elite"}
                     </p>
                   </li>

@@ -29,8 +29,8 @@ const TILE: Record<string, string> = {
   lg: "h-14 w-14 rounded-2xl",
 };
 const GLYPH: Record<string, string> = {
-  sm: "h-[18px] w-[18px]",
-  md: "h-5 w-5",
+  sm: "h-5 w-5",
+  md: "h-6 w-6",
   lg: "h-7 w-7",
 };
 

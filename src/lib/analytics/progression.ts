@@ -76,6 +76,34 @@ export function buildNextSessions(
     let target: NextSession["target"];
     let note: string;
 
+    // Bodyweight work (no external load logged): progress by reps, never by
+    // load — "add 2.5kg to zero" would be nonsense.
+    if (top.weight <= 0) {
+      if (opts.deload) {
+        action = "deload";
+        target = { weight: 0, reps: top.reps, sets: Math.max(1, Math.ceil(setCount / 2)) };
+        note = "Deload week, half the sets, stop well short of failure.";
+      } else if (rpe == null || rpe <= 8.5) {
+        action = "progress";
+        target = { weight: 0, reps: top.reps + 1, sets: setCount };
+        note = "Bodyweight work, chase one more rep per set.";
+      } else {
+        action = "hold";
+        target = { weight: 0, reps: top.reps, sets: setCount };
+        note = `Near-maximal (RPE ${round1(rpe)}), hold the reps until they feel easier.`;
+      }
+      out.push({
+        exerciseId,
+        exerciseName: meta.exerciseName,
+        isMajor: meta.isMajor,
+        last: { weight: top.weight, reps: top.reps, rpe: top.rpe, sets: setCount },
+        target,
+        action,
+        note,
+      });
+      continue;
+    }
+
     if (opts.deload) {
       action = "deload";
       target = {

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
 import { estimate1RM } from "@/lib/analytics/epley";
 import { toKg } from "@/lib/units";
+import { weightSemantics } from "@/lib/weight-semantics";
 import { exerciseColor, exerciseGlyph } from "@/lib/exercise-visual";
 import { RestTimer } from "@/components/rest-timer";
 import { IconBadge } from "@/components/icon-badge";
@@ -177,18 +178,20 @@ export function LogForm({
   async function save() {
     setError(null);
 
-    const rows = entries.flatMap((entry) =>
-      entry.sets
-        .filter((s) => s.reps !== "" && s.weight !== "")
+    const rows = entries.flatMap((entry) => {
+      // Bodyweight movements accept a blank/zero weight (added weight = 0).
+      const sem = weightSemantics(exerciseById.get(entry.exerciseId)?.equipment);
+      return entry.sets
+        .filter((s) => s.reps !== "" && (s.weight !== "" || sem.allowZero))
         .map((s, i) => ({
           exercise_id: entry.exerciseId,
           set_number: i + 1,
           reps: Number(s.reps),
           // Stored canonically in kg; the athlete typed it in their unit.
-          weight: toKg(Number(s.weight), units),
+          weight: toKg(Number(s.weight || 0), units),
           rpe: s.rpe === "" ? null : Number(s.rpe),
-        })),
-    );
+        }));
+    });
 
     if (rows.length === 0) {
       setError("Add at least one set with reps and weight.");
@@ -353,6 +356,7 @@ export function LogForm({
 
       {entries.map((entry) => {
         const ex = exerciseById.get(entry.exerciseId);
+        const sem = weightSemantics(ex?.equipment);
         return (
           <div key={entry.key} className="card">
             <div className="mb-4 flex items-center gap-3">
@@ -373,6 +377,11 @@ export function LogForm({
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
+
+            {/* What "weight" means for this movement — one dumbbell, total bar, added, etc. */}
+            <p className="mb-3 rounded-lg bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand">
+              {sem.hint}
+            </p>
 
             <div className="space-y-2">
               <div className="grid grid-cols-[2.25rem_1fr_1fr_1fr_2.25rem] items-center gap-2">
@@ -400,7 +409,7 @@ export function LogForm({
                     inputMode="decimal"
                     step="0.5"
                     className="input readout text-center"
-                    placeholder="100"
+                    placeholder={sem.allowZero ? "0" : "100"}
                     value={s.weight}
                     onChange={(e) => updateSet(entry.key, i, "weight", e.target.value)}
                   />

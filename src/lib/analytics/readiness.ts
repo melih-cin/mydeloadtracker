@@ -24,6 +24,7 @@ import {
   overallStrength,
   isStandardLift,
   type DeloadCadence,
+  type LiftPerf,
   type Sex,
 } from "./standards";
 import type { Units } from "@/lib/types";
@@ -287,13 +288,16 @@ function factorTimeUnderLoad(
   );
 }
 
-/** Best estimated 1RM per standard lift, keyed by exercise name (for banding). */
-function bestE1RMByStandardLift(sets: TrainingSet[]): Map<string, number> {
-  const best = new Map<string, number>();
+/** Best performance per standard lift (e1RM and single-set reps), for banding. */
+function bestPerfByStandardLift(sets: TrainingSet[]): Map<string, LiftPerf> {
+  const best = new Map<string, LiftPerf>();
   for (const s of sets) {
     if (!isStandardLift(s.exerciseName)) continue;
-    const e = estimate1RM(s.weight, s.reps);
-    if (e > (best.get(s.exerciseName) ?? 0)) best.set(s.exerciseName, e);
+    const prev = best.get(s.exerciseName) ?? { e1rm: 0, reps: 0 };
+    best.set(s.exerciseName, {
+      e1rm: Math.max(prev.e1rm ?? 0, estimate1RM(s.weight, s.reps)),
+      reps: Math.max(prev.reps ?? 0, s.reps),
+    });
   }
   return best;
 }
@@ -461,7 +465,7 @@ export function computeReadiness(
   // bodyweight/sex => intermediate defaults, so behavior is unchanged for users
   // who haven't entered their stats.
   const overall = overallStrength(
-    bestE1RMByStandardLift(sets),
+    bestPerfByStandardLift(sets),
     opts.bodyweight,
     opts.sex,
     opts.units ?? "kg",

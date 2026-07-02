@@ -49,10 +49,13 @@ export function buildCoachContext(
   const setVolume = buildSetVolume(sets, 4, 8, now);
   const records = buildRecords(sets);
 
-  // Strength standards (StrengthLevel-style) — banding each main lift by
-  // bodyweight-relative e1RM, used to right-size deload cadence and advice.
-  const e1rmByLift = new Map(records.map((r) => [r.exerciseName, r.bestE1RM]));
-  const strength = overallStrength(e1rmByLift, profile?.bodyweight ?? null, profile?.sex ?? null, units);
+  // Strength standards (strengthlevel.com tables) — banding each main lift,
+  // used to right-size deload cadence and advice. Weight lifts band by e1RM;
+  // bodyweight lifts band by single-set reps.
+  const perfByLift = new Map(
+    records.map((r) => [r.exerciseName, { e1rm: r.bestE1RM, reps: r.bestReps }]),
+  );
+  const strength = overallStrength(perfByLift, profile?.bodyweight ?? null, profile?.sex ?? null, units);
 
   const lines: string[] = [];
   lines.push(`ATHLETE: ${name} (weights in ${units})`);
@@ -84,10 +87,13 @@ export function buildCoachContext(
     );
     lines.push(`  Deload cadence for this level: ${readiness.cadenceNote}.`);
     for (const s of strength.perLift) {
+      const unitTxt = s.metric === "reps" ? "reps" : units;
       const next = s.nextLevel
-        ? ` (→ ${s.nextLevel.label} at ~${s.nextLevelE1RM} ${units})`
+        ? ` (→ ${s.nextLevel.label} at ~${s.nextLevelValue} ${unitTxt})`
         : " (top band)";
-      lines.push(`  - ${s.lift}: ${s.level.label} @ ${s.ratio}x bodyweight${next}`);
+      const perfTxt =
+        s.metric === "reps" ? `${s.ratio} reps` : `${s.ratio}x bodyweight`;
+      lines.push(`  - ${s.lift}: ${s.level.label} @ ${perfTxt}${next}`);
     }
   } else {
     lines.push(
