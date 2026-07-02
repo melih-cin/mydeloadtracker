@@ -341,16 +341,22 @@ export function LogForm({
 
       {/* Session builder: one ongoing workout, saved as a draft as you go. */}
       {entries.length > 0 && (
-        <div className="flex items-center justify-between px-1 pt-1">
-          <p className="text-sm font-medium">
-            This workout · {entries.length} {entries.length === 1 ? "exercise" : "exercises"}
+        <div className="px-1 pt-1">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">
+              This workout · {entries.length} {entries.length === 1 ? "exercise" : "exercises"}
+            </p>
+            <button
+              onClick={discardDraft}
+              className="text-xs text-muted transition-colors hover:text-danger"
+            >
+              Discard
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-muted">
+            RPE is optional effort, 1 to 10. Think reps left in the tank: RPE 8 means you had 2
+            more in you, RPE 10 means none. Skip it if you are not sure.
           </p>
-          <button
-            onClick={discardDraft}
-            className="text-xs text-muted transition-colors hover:text-danger"
-          >
-            Discard
-          </button>
         </div>
       )}
 

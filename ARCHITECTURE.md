@@ -56,9 +56,11 @@ All in `src/lib/analytics`, all pure:
   (`src/lib/weight-semantics.ts`): one dumbbell, total bar weight, stack
   weight, or added weight for bodyweight moves. Stated on the input because
   strengthlevel's dumbbell standards are per dumbbell.
-- **The exercise library is closed.** Exactly the 64 lifts in
-  strength-standards.json are loggable; retired exercises are hidden, not
-  deleted, so history resolves (migration 0011).
+- **The exercise library is curated.** The 64 standards lifts from
+  strength-standards.json plus a curated set of popular PPL / Upper-Lower
+  accessories (migration 0013). Accessories log and trend normally but get no
+  Beginner-Elite banding, since no population standards exist for them.
+  Retired exercises are hidden, not deleted, so history resolves.
 - **RLS everywhere.** Every table is row-level-secured to the owner. The one
   deliberate exception is `ingest_health_metrics` (migration 0012), a
   SECURITY DEFINER function that validates a per-user token so an
