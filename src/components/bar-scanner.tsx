@@ -1,28 +1,68 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, Check, Loader2, ScanLine, Sparkles, Video, X } from "lucide-react";
+import { Camera, Check, Loader2, RefreshCw, ScanLine, Trophy, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { capture } from "@/lib/track";
-import { toKg } from "@/lib/units";
+import { estimate1RM } from "@/lib/analytics/epley";
+import {
+  captureHintFor,
+  fieldsNeedingReview,
+  readingWeightForDisplay,
+  scanToSetRow,
+  type ScanReading,
+} from "@/lib/scan-mapping";
 import type { Exercise, Units } from "@/lib/types";
 
-interface Reading {
-  detected: boolean;
-  exercise?: string;
-  equipment?: string;
-  total_weight_kg?: number | null;
-  per_side_plates_kg?: number[];
-  reps?: number | null;
-  confidence: "high" | "medium" | "low";
-  note: string;
-}
+/**
+ * Bar scanner: camera to logged set. Every state below is reachable and
+ * rendered, including the ones that used to show nothing or a raw error.
+ * See docs/SCANNER_FLOW.md for the full inventory.
+ */
+type Phase =
+  | "idle"
+  | "permission" // browser dialog is up
+  | "denied" // camera refused, recovery card
+  | "live" // preview, then recording
+  | "uploading" // frames on the wire, real progress
+  | "processing" // model reading
+  | "result" // reading returned
+  | "failed" // something went wrong, retry offered
+  | "logged"; // saved, with context
 
-const LB = 2.20462;
-const round5 = (n: number) => Math.round(n / 5) * 5;
+type FailReason =
+  | "offline"
+  | "timeout"
+  | "server"
+  | "upload"
+  | "few_frames"
+  | "photo"
+  | "no_camera";
+
+const FAILURES: Record<FailReason, { title: string; hint: string }> = {
+  offline: { title: "No connection", hint: "Reconnect, then try again. Your capture is kept." },
+  timeout: { title: "That took too long", hint: "The read timed out. Try again." },
+  server: { title: "Could not read that one", hint: "Give it another go in a moment." },
+  upload: { title: "Upload did not finish", hint: "Check your connection, then try again." },
+  few_frames: { title: "Not enough of the set", hint: "Record a little longer with the bar in frame." },
+  photo: { title: "Could not open that photo", hint: "Take another one." },
+  no_camera: { title: "No camera available", hint: "Take a photo instead, or log it by hand." },
+};
+
+const MAX_CLIP_SECONDS = 90;
+const REQUEST_TIMEOUT_MS = 25_000;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const CONF: Record<string, string> = { high: "text-success", medium: "text-warning", low: "text-danger" };
+
+class ScanError extends Error {
+  reason: FailReason;
+  constructor(reason: FailReason) {
+    super(reason);
+    this.reason = reason;
+  }
+}
 
 /** Downscale + JPEG-compress a still photo file for upload. */
 function fileToDataUrl(file: File, maxDim = 1024, quality = 0.8): Promise<string> {
@@ -65,6 +105,48 @@ function grabFrame(video: HTMLVideoElement, maxDim = 640, quality = 0.55): strin
   return c.toDataURL("image/jpeg", quality);
 }
 
+/**
+ * POST the frames with real upload progress and a hard timeout. fetch cannot
+ * report upload progress, so this uses XHR: on a slow connection the athlete
+ * always sees movement instead of a still spinner.
+ */
+function postScan(
+  images: string[],
+  onProgress: (pct: number) => void,
+  onUploaded: () => void,
+): Promise<ScanReading> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return reject(new ScanError("offline"));
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/scan");
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.timeout = REQUEST_TIMEOUT_MS;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+    };
+    xhr.upload.onload = () => {
+      onProgress(100);
+      onUploaded();
+    };
+    xhr.upload.onerror = () => reject(new ScanError("upload"));
+    xhr.onload = () => {
+      let json: { reading?: ScanReading } | null = null;
+      try {
+        json = JSON.parse(xhr.responseText);
+      } catch {
+        /* the server's own copy is user-safe; a parse failure is a server fault */
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && json?.reading) resolve(json.reading);
+      else reject(new ScanError("server"));
+    };
+    xhr.onerror = () => reject(new ScanError("offline"));
+    xhr.ontimeout = () => reject(new ScanError("timeout"));
+    xhr.send(JSON.stringify({ images }));
+  });
+}
+
 export function BarScanner({ exercises, units }: { exercises: Exercise[]; units: Units }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -74,36 +156,59 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
   const tickRef = useRef(0);
   const everyNthRef = useRef(1);
   const intervalRef = useRef<number | null>(null);
+  const lastFramesRef = useRef<string[]>([]); // retry without re-capturing
+  const stageRef = useRef<number | null>(null);
 
-  const [live, setLive] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [recording, setRecording] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-
-  const [preview, setPreview] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [reading, setReading] = useState<Reading | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState(0);
+  const [stage, setStage] = useState(0);
+  const [failure, setFailure] = useState<FailReason>("server");
+  const [reading, setReading] = useState<ScanReading | null>(null);
+  const [frameCount, setFrameCount] = useState(1);
 
   const [exerciseId, setExerciseId] = useState("");
   const [weight, setWeight] = useState("");
-  const [reps, setReps] = useState("5");
+  const [reps, setReps] = useState("");
+  const [editing, setEditing] = useState<"exercise" | "weight" | "reps" | null>(null);
   const [logging, setLogging] = useState(false);
-  const [logged, setLogged] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    name: string;
+    weight: string;
+    reps: string;
+    setNumber: number;
+    isPR: boolean;
+    e1rm: number;
+  } | null>(null);
 
-  useEffect(() => () => stopLive(), []); // cleanup camera on unmount
+  useEffect(() => () => teardown(), []); // release the camera on unmount
 
-  function stopLive() {
+  function clearTimers() {
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    if (stageRef.current !== null) {
+      clearInterval(stageRef.current);
+      stageRef.current = null;
+    }
+  }
+
+  function teardown() {
+    clearTimers();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    setLive(false);
+  }
+
+  function stopLive() {
+    teardown();
     setRecording(false);
     setCountdown(0);
     setElapsed(0);
+    setPhase("idle");
   }
 
   function matchExercise(name?: string): string {
@@ -116,81 +221,49 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
     );
   }
 
-  function applyReading(r: Reading) {
-    setReading(r);
-    if (r.detected) {
-      setExerciseId(matchExercise(r.exercise));
-      const kg = r.total_weight_kg ?? 0;
-      setWeight(kg > 0 ? String(units === "lb" ? round5(kg * LB) : kg) : "");
-      setReps(r.reps && r.reps > 0 ? String(r.reps) : "5");
-    }
+  function fail(reason: FailReason, frames: number) {
+    clearTimers();
+    setFailure(reason);
+    setPhase("failed");
+    capture("scan_failed", { reason, frames });
   }
 
-  async function analyze(images: string[]) {
-    setError(null);
-    setReading(null);
-    setLogged(false);
-    setAnalyzing(true);
-    try {
-      const res = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Scan failed.");
-      const r = json.reading as Reading;
-      capture("bar_scanned", { detected: r.detected, confidence: r.confidence, frames: images.length });
-      applyReading(r);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Scan failed.");
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  async function onPhoto(file: File) {
-    try {
-      const dataUrl = await fileToDataUrl(file);
-      setPreview(dataUrl);
-      await analyze([dataUrl]);
-    } catch {
-      setError("Couldn't read that photo. Try again.");
-    }
-  }
+  // ---- capture ------------------------------------------------------------
 
   async function startLive() {
-    setError(null);
     setReading(null);
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return fail("no_camera", 0);
+    }
+    setPhase("permission");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
         audio: false,
       });
       streamRef.current = stream;
-      setLive(true);
-      // wait a tick for the <video> to mount, then attach
-      await sleep(0);
+      setPhase("live");
+      await sleep(0); // let the <video> mount before attaching
       const v = videoRef.current;
       if (v) {
         v.srcObject = stream;
         await v.play().catch(() => {});
       }
-    } catch {
-      setError("Couldn't open the camera. Take a photo instead, or check camera permissions.");
-      stopLive();
+    } catch (err) {
+      teardown();
+      const name = err instanceof Error ? err.name : "";
+      if (name === "NotFoundError" || name === "OverconstrainedError") return fail("no_camera", 0);
+      setPhase("denied");
+      capture("scan_failed", { reason: "permission_denied", frames: 0 });
     }
   }
 
-  // Record an arbitrary-length set. We sample frames continuously but keep a
-  // BOUNDED, evenly-spaced buffer (≤16) that always spans the whole recording —
-  // so a 5-second single and a 60-second 20-rep set both send a fixed, affordable
-  // number of frames covering the entire movement. (This is the phone version of
-  // the on-device "process the stream, not a fixed clip" model — see below.)
+  // Sample frames continuously but keep a BOUNDED, evenly-spaced buffer (<=16)
+  // that always spans the whole recording, so a 5-second single and a 60-second
+  // set both send a fixed, affordable number of frames covering the movement.
   async function startRecording() {
     const v = videoRef.current;
     if (!v) return;
-    setError(null);
     setRecording(true);
     for (let n = 3; n >= 1; n--) {
       setCountdown(n);
@@ -204,14 +277,12 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
     intervalRef.current = window.setInterval(() => {
       const secs = (Date.now() - start) / 1000;
       setElapsed(Math.floor(secs));
-      if (secs > 90) return finishRecording(); // hard safety cap
+      if (secs > MAX_CLIP_SECONDS) return finishRecording();
       tickRef.current += 1;
       if (tickRef.current % everyNthRef.current !== 0) return;
       const f = grabFrame(v);
       if (f) bufRef.current.push(f);
       if (bufRef.current.length >= 16) {
-        // halve to every-other frame + halve the sample rate → stays bounded and
-        // evenly spaced across however long the set runs.
         bufRef.current = bufRef.current.filter((_, i) => i % 2 === 0);
         everyNthRef.current *= 2;
       }
@@ -220,50 +291,191 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
 
   function finishRecording() {
     const frames = [...bufRef.current];
-    stopLive(); // clears the interval + stops the camera
-    setPreview(frames[frames.length - 1] ?? null);
+    teardown();
+    setRecording(false);
+    setCountdown(0);
+    setElapsed(0);
     if (frames.length >= 2) void analyze(frames);
-    else setError("Didn't catch enough of the set. Try again in better light.");
+    else fail("few_frames", frames.length);
   }
 
+  async function onPhoto(file: File) {
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await analyze([dataUrl]);
+    } catch {
+      fail("photo", 0);
+    }
+  }
+
+  // ---- analyze ------------------------------------------------------------
+
+  function stageLabels(frames: number): string[] {
+    return frames > 1
+      ? ["Reading the plates", "Identifying the lift", "Counting the reps"]
+      : ["Reading the plates", "Identifying the lift"];
+  }
+
+  async function analyze(images: string[]) {
+    lastFramesRef.current = images;
+    setFrameCount(images.length);
+    setReading(null);
+    setLogError(null);
+    setUploadPct(0);
+    setStage(0);
+    setPhase("uploading");
+
+    const labels = stageLabels(images.length);
+    try {
+      const r = await postScan(
+        images,
+        (pct) => setUploadPct(pct),
+        () => {
+          // Upload done, the model is working: name what happens, in order.
+          setPhase("processing");
+          clearTimers();
+          stageRef.current = window.setInterval(() => {
+            setStage((s) => Math.min(labels.length - 1, s + 1));
+          }, 2200);
+        },
+      );
+      clearTimers();
+      capture("bar_scanned", {
+        detected: r.detected,
+        confidence: r.confidence,
+        frames: images.length,
+      });
+      if (!r.detected) capture("scan_failed", { reason: "no_detection", frames: images.length });
+      applyReading(r);
+    } catch (e) {
+      fail(e instanceof ScanError ? e.reason : "server", images.length);
+    }
+  }
+
+  function applyReading(r: ScanReading) {
+    setReading(r);
+    setExerciseId(matchExercise(r.exercise));
+    setWeight(readingWeightForDisplay(r.total_weight_kg, units));
+    setReps(r.reps && r.reps > 0 ? String(r.reps) : "");
+    setEditing(null);
+    setPhase("result");
+  }
+
+  function retry() {
+    if (lastFramesRef.current.length > 0) void analyze(lastFramesRef.current);
+    else setPhase("idle");
+  }
+
+  // ---- log ----------------------------------------------------------------
+
   async function logSet() {
-    if (!exerciseId || !(Number(weight) > 0) || !(Number(reps) > 0)) {
-      setError("Pick the exercise and enter weight × reps.");
+    const row = scanToSetRow({ weight, reps }, units);
+    if (!exerciseId || !row) {
+      setLogError("Pick the lift, and check the weight and reps.");
       return;
     }
     setLogging(true);
-    setError(null);
+    setLogError(null);
     const supabase = createClient();
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) throw new Error("You're not signed in.");
-      const { data: session, error: sErr } = await supabase
+      if (!user) throw new Error("You are not signed in.");
+
+      // Read history BEFORE inserting, so "set N today" and the personal-best
+      // check are both honest comparisons against what came before this set.
+      const { data: prior } = await supabase
+        .from("workout_sets")
+        .select("reps, weight, workout_sessions!inner(performed_at)")
+        .eq("exercise_id", exerciseId);
+      const rows = (prior ?? []) as unknown as {
+        reps: number;
+        weight: number;
+        workout_sessions: { performed_at: string };
+      }[];
+      const today = new Date();
+      const isToday = (iso: string) => {
+        const d = new Date(iso);
+        return (
+          d.getFullYear() === today.getFullYear() &&
+          d.getMonth() === today.getMonth() &&
+          d.getDate() === today.getDate()
+        );
+      };
+      const setsToday = rows.filter((r) => isToday(r.workout_sessions.performed_at)).length;
+      const priorBest = rows.reduce((m, r) => Math.max(m, estimate1RM(r.weight, r.reps)), 0);
+
+      // Append to today's session rather than creating one workout per scan.
+      const startOfDay = new Date(today);
+      startOfDay.setHours(0, 0, 0, 0);
+      const { data: openSession } = await supabase
         .from("workout_sessions")
-        .insert({ user_id: user.id, performed_at: new Date().toISOString(), notes: "Scanned" })
         .select("id")
-        .single();
-      if (sErr || !session) throw new Error(sErr?.message ?? "Could not log.");
+        .gte("performed_at", startOfDay.toISOString())
+        .order("performed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let sessionId = openSession?.id as string | undefined;
+      if (!sessionId) {
+        const { data: created, error: sErr } = await supabase
+          .from("workout_sessions")
+          .insert({ user_id: user.id, performed_at: new Date().toISOString(), notes: "Scanned" })
+          .select("id")
+          .single();
+        if (sErr || !created) throw new Error("Could not start a session.");
+        sessionId = created.id;
+      }
+
+      const { count } = await supabase
+        .from("workout_sets")
+        .select("id", { count: "exact", head: true })
+        .eq("session_id", sessionId)
+        .eq("exercise_id", exerciseId);
+
       const { error: setErr } = await supabase.from("workout_sets").insert({
-        session_id: session.id,
+        session_id: sessionId,
         exercise_id: exerciseId,
         user_id: user.id,
-        set_number: 1,
-        reps: Number(reps),
-        weight: toKg(Number(weight), units),
-        rpe: null,
+        set_number: (count ?? 0) + 1,
+        ...row,
       });
-      if (setErr) throw new Error(setErr.message);
+      if (setErr) throw new Error("Could not save the set.");
+
+      const e1rmKg = estimate1RM(row.weight, row.reps);
       capture("workout_logged", { sets: 1, exercises: 1, edit: false, source: "scan" });
-      setLogged(true);
-      setTimeout(() => router.push("/dashboard"), 1200);
+      setResult({
+        name: exercises.find((e) => e.id === exerciseId)?.name ?? "Set",
+        weight,
+        reps,
+        setNumber: setsToday + 1,
+        isPR: e1rmKg > priorBest,
+        e1rm: Math.round(units === "lb" ? e1rmKg * 2.2046226218 : e1rmKg),
+      });
+      setPhase("logged");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not log.");
+      setLogError(e instanceof Error ? e.message : "Could not save the set.");
+    } finally {
       setLogging(false);
     }
   }
+
+  function scanAgain() {
+    setReading(null);
+    setResult(null);
+    setLogError(null);
+    lastFramesRef.current = [];
+    setPhase("idle");
+  }
+
+  // ---- render -------------------------------------------------------------
+
+  const review = reading ? fieldsNeedingReview(reading, exerciseId, frameCount) : null;
+  const hint = reading ? captureHintFor(reading, frameCount) : null;
+  const labels = stageLabels(frameCount);
+  const exerciseName = exercises.find((e) => e.id === exerciseId)?.name ?? "";
 
   return (
     <div className="space-y-4">
@@ -275,13 +487,82 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) onPhoto(f);
+          if (f) void onPhoto(f);
           e.target.value = "";
         }}
       />
 
-      {/* LIVE CAMERA */}
-      {live && (
+      {/* IDLE: the two ways in, with the camera sentence shown before any prompt */}
+      {phase === "idle" && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="card flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors hover:bg-surface-hover"
+            >
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brand">
+                <Camera className="h-5 w-5" />
+              </span>
+              <span className="font-medium">Take a photo</span>
+              <span className="text-xs text-muted">Reads the weight</span>
+            </button>
+            <button
+              onClick={startLive}
+              className="card flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors hover:bg-surface-hover"
+            >
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brand">
+                <Video className="h-5 w-5" />
+              </span>
+              <span className="font-medium">Record a set</span>
+              <span className="text-xs text-muted">Reads weight, reps, and the lift</span>
+            </button>
+          </div>
+          <p className="text-xs leading-relaxed text-muted">
+            The camera is used to read the bar. A few still frames are sent to identify the lift,
+            the plates, and your reps. No video is stored.
+          </p>
+        </>
+      )}
+
+      {/* PERMISSION PENDING: this used to render nothing at all */}
+      {phase === "permission" && (
+        <div className="card flex items-start gap-3">
+          <Loader2 className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin text-brand" />
+          <div>
+            <p className="font-medium">Waiting for camera access</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              Choose Allow so the camera can read the bar. You can change this later.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* PERMISSION DENIED: recovery, never a dead end */}
+      {phase === "denied" && (
+        <div className="card space-y-3">
+          <p className="font-medium">Camera access is off</p>
+          <p className="text-sm leading-relaxed text-muted">
+            To turn it on, tap the icon at the left of the address bar, allow the camera, then
+            reload. On iPhone it is also under Settings, Safari, Camera.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={startLive} className="btn-brand">
+              <RefreshCw className="h-4 w-4" />
+              Try again
+            </button>
+            <button onClick={() => fileRef.current?.click()} className="btn-ghost">
+              <Camera className="h-4 w-4" />
+              Take a photo
+            </button>
+            <Link href="/log" className="btn-ghost">
+              Log by hand
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* LIVE PREVIEW + RECORDING */}
+      {phase === "live" && (
         <div className="card relative overflow-hidden p-0">
           <video
             ref={videoRef}
@@ -291,17 +572,29 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
             className="aspect-[3/4] w-full bg-black object-cover sm:aspect-video"
           />
           {countdown > 0 && (
-            <div className="absolute inset-0 grid place-items-center bg-black/40 text-6xl font-bold text-white">
+            <div className="absolute inset-0 grid place-items-center bg-black/40 text-6xl font-bold tabular-nums text-white">
               {countdown}
             </div>
           )}
+          {!recording && countdown === 0 && (
+            <div className="absolute inset-x-0 top-0 p-3">
+              <p className="mx-auto w-fit rounded-full bg-black/55 px-3 py-1.5 text-center text-xs text-white">
+                Bar and plates in frame, filmed from the side
+              </p>
+            </div>
+          )}
           {recording && countdown === 0 && (
-            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-danger/90 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-white" /> recording {elapsed}s, do your set
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-danger/90 px-2.5 py-1 text-xs font-medium tabular-nums text-white">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+              recording {elapsed}s, do your set
             </div>
           )}
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-3">
-            <button onClick={stopLive} className="rounded-lg bg-white/15 px-3 py-2 text-sm text-white" aria-label="Cancel">
+            <button
+              onClick={stopLive}
+              className="rounded-lg bg-white/15 px-3 py-2 text-sm text-white"
+              aria-label="Cancel"
+            >
               <X className="h-4 w-4" />
             </button>
             {recording && countdown === 0 ? (
@@ -309,7 +602,7 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
                 onClick={finishRecording}
                 className="rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white"
               >
-                Stop &amp; analyze
+                Stop and read
               </button>
             ) : (
               <button
@@ -325,112 +618,219 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
         </div>
       )}
 
-      {/* CHOOSE (photo or video) */}
-      {!live && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="card flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors hover:bg-surface-hover"
-          >
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brand">
-              <Camera className="h-5 w-5" />
-            </span>
-            <span className="font-medium">Take a photo</span>
-            <span className="text-xs text-muted">Reads the weight</span>
-          </button>
-          <button
-            onClick={startLive}
-            className="card flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors hover:bg-surface-hover"
-          >
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brand">
-              <Video className="h-5 w-5" />
-            </span>
-            <span className="font-medium">Record a rep</span>
-            <span className="text-xs text-muted">Reads weight + reps + the lift</span>
-          </button>
+      {/* UPLOADING: real progress, so a slow connection never looks frozen */}
+      {phase === "uploading" && (
+        <div className="card space-y-3">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-brand" />
+            <p className="font-medium">
+              Sending {frameCount === 1 ? "the photo" : `${frameCount} frames`}
+            </p>
+            <span className="ml-auto text-sm tabular-nums text-muted">{uploadPct}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-border">
+            <div
+              className="h-full rounded-full bg-brand transition-all duration-200"
+              style={{ width: `${uploadPct}%` }}
+            />
+          </div>
         </div>
       )}
 
-      {preview && !live && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={preview} alt="Captured" className="mx-auto max-h-48 rounded-xl object-contain" />
-      )}
-
-      {analyzing && (
-        <div className="card flex items-center gap-3 text-sm">
-          <Loader2 className="h-5 w-5 animate-spin text-brand" />
-          <span className="flex items-center gap-1.5">
-            <ScanLine className="h-4 w-4 text-brand" /> Reading the bar…
-          </span>
+      {/* PROCESSING: name what is happening, in order */}
+      {phase === "processing" && (
+        <div className="card space-y-3">
+          <div className="flex items-center gap-3">
+            <ScanLine className="h-5 w-5 flex-shrink-0 text-brand" />
+            <p className="font-medium">{labels[stage]}</p>
+            <Loader2 className="ml-auto h-4 w-4 flex-shrink-0 animate-spin text-muted" />
+          </div>
+          <div className="flex gap-1.5">
+            {labels.map((l, i) => (
+              <span
+                key={l}
+                className={`h-1 flex-1 rounded-full transition-colors ${i <= stage ? "bg-brand" : "bg-border"}`}
+              />
+            ))}
+          </div>
         </div>
       )}
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      {/* FAILURE: specific, friendly, one suggestion, always a way forward */}
+      {phase === "failed" && (
+        <div className="card space-y-3">
+          <p className="font-medium">{FAILURES[failure].title}</p>
+          <p className="text-sm leading-relaxed text-muted">{FAILURES[failure].hint}</p>
+          <div className="flex flex-wrap gap-2">
+            {lastFramesRef.current.length > 0 && failure !== "few_frames" && (
+              <button onClick={retry} className="btn-brand">
+                <RefreshCw className="h-4 w-4" />
+                Try again
+              </button>
+            )}
+            <button onClick={scanAgain} className="btn-ghost">
+              <Camera className="h-4 w-4" />
+              New capture
+            </button>
+            <Link href="/log" className="btn-ghost">
+              Log by hand
+            </Link>
+          </div>
+        </div>
+      )}
 
-      {reading && !analyzing && (
+      {/* RESULT: the money screen */}
+      {phase === "result" && reading && review && (
         <div className="card space-y-4">
           {reading.detected ? (
             <>
-              <div className="flex items-start gap-2">
-                <Sparkles className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand" />
-                <div>
-                  <p className="font-medium">{reading.note}</p>
-                  <p className={`text-xs ${CONF[reading.confidence]}`}>
-                    {reading.confidence} confidence, check it before logging
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-                <div>
-                  <label className="label">Exercise</label>
-                  <select className="input" value={exerciseId} onChange={(e) => setExerciseId(e.target.value)}>
-                    <option value="">Pick exercise…</option>
-                    {exercises.map((ex) => (
-                      <option key={ex.id} value={ex.id}>
-                        {ex.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Weight ({units}) · total on the bar</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    className="input w-24"
-                    value={weight}
-                    onChange={(e) => setWeight(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="label">Reps</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    className="input w-20"
-                    value={reps}
-                    onChange={(e) => setReps(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {logged ? (
-                <p className="flex items-center gap-1.5 text-sm font-medium text-success">
-                  <Check className="h-4 w-4" /> Logged! Taking you to your dashboard…
-                </p>
+              {editing === "exercise" ? (
+                <select
+                  autoFocus
+                  className="input text-base"
+                  value={exerciseId}
+                  onChange={(e) => {
+                    setExerciseId(e.target.value);
+                    setEditing(null);
+                  }}
+                  onBlur={() => setEditing(null)}
+                >
+                  <option value="">Pick the lift</option>
+                  {exercises.map((ex) => (
+                    <option key={ex.id} value={ex.id}>
+                      {ex.name}
+                    </option>
+                  ))}
+                </select>
               ) : (
-                <button onClick={logSet} disabled={logging} className="btn-brand w-full">
-                  {logging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Log this set
+                <button
+                  onClick={() => setEditing("exercise")}
+                  className="flex w-full items-baseline justify-between gap-3 text-left"
+                >
+                  <span className="text-2xl font-semibold leading-tight">
+                    {exerciseName || "Pick the lift"}
+                  </span>
+                  <span className="micro flex-shrink-0">{review.exercise ? "check" : "change"}</span>
                 </button>
               )}
+
+              {/* Weight and reps, big enough to film */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`rounded-xl p-3 ${review.weight ? "bg-warning/10" : "bg-surface-2"}`}>
+                  <span className="micro">Weight ({units}), total on the bar</span>
+                  {editing === "weight" ? (
+                    <input
+                      autoFocus
+                      type="number"
+                      inputMode="decimal"
+                      step="0.5"
+                      className="input readout mt-1 text-center text-2xl"
+                      value={weight}
+                      onChange={(e) => setWeight(e.target.value)}
+                      onBlur={() => setEditing(null)}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setEditing("weight")}
+                      className="readout mt-1 block w-full text-left text-4xl font-semibold tabular-nums"
+                    >
+                      {weight || "—"}
+                    </button>
+                  )}
+                </div>
+                <div className={`rounded-xl p-3 ${review.reps ? "bg-warning/10" : "bg-surface-2"}`}>
+                  <span className="micro">Reps</span>
+                  {editing === "reps" ? (
+                    <input
+                      autoFocus
+                      type="number"
+                      inputMode="numeric"
+                      className="input readout mt-1 text-center text-2xl"
+                      value={reps}
+                      onChange={(e) => setReps(e.target.value)}
+                      onBlur={() => setEditing(null)}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setEditing("reps")}
+                      className="readout mt-1 block w-full text-left text-4xl font-semibold tabular-nums"
+                    >
+                      {reps || "—"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* What the model saw, and where it is unsure */}
+              <p className="text-sm leading-relaxed text-muted">{reading.note}</p>
+              {(review.weight || review.reps || review.exercise) && (
+                <p className="text-sm leading-relaxed text-warning">
+                  {review.weight && !weight
+                    ? "The plates were not readable. Enter the weight."
+                    : review.reps && !reps && frameCount === 1
+                      ? "A photo cannot count reps. Enter them."
+                      : "Tap any number to correct it before saving."}
+                </p>
+              )}
+              {hint && <p className="text-xs leading-relaxed text-muted">{hint}</p>}
+              {logError && <p className="text-sm text-danger">{logError}</p>}
+
+              <button onClick={logSet} disabled={logging} className="btn-brand w-full">
+                {logging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {reading.confidence === "low" ? "Confirm and log" : "Log this set"}
+              </button>
+              <button onClick={scanAgain} className="btn-ghost w-full">
+                Scan again
+              </button>
             </>
           ) : (
-            <p className="text-sm text-muted">
-              {reading.note || "Couldn't spot a loaded bar. Try a clearer shot of the plates."}
-            </p>
+            <>
+              <p className="font-medium">No loaded bar in frame</p>
+              <p className="text-sm leading-relaxed text-muted">
+                {hint ?? "Get the whole bar and plates in frame, filmed from the side."}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={scanAgain} className="btn-brand">
+                  <Camera className="h-4 w-4" />
+                  Try another capture
+                </button>
+                <Link href="/log" className="btn-ghost">
+                  Log by hand
+                </Link>
+              </div>
+            </>
           )}
+        </div>
+      )}
+
+      {/* LOGGED: the set, in context */}
+      {phase === "logged" && result && (
+        <div className="card space-y-4 text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-success/15 text-success">
+            {result.isPR ? <Trophy className="h-6 w-6" /> : <Check className="h-6 w-6" />}
+          </div>
+          <div>
+            <p className="text-2xl font-semibold leading-tight">{result.name}</p>
+            <p className="readout mt-1 text-3xl font-semibold tabular-nums">
+              {result.weight} {units} × {result.reps}
+            </p>
+          </div>
+          <p className="text-sm text-muted">
+            Set {result.setNumber} today
+            <span aria-hidden> · </span>
+            {result.isPR
+              ? `new best estimated 1RM, ${result.e1rm} ${units}`
+              : `estimated 1RM ${result.e1rm} ${units}`}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={scanAgain} className="btn-brand flex-1">
+              <ScanLine className="h-4 w-4" />
+              Scan another
+            </button>
+            <Link href="/dashboard" className="btn-ghost flex-1 justify-center">
+              Done
+            </Link>
+          </div>
         </div>
       )}
     </div>

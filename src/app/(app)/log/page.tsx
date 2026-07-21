@@ -20,9 +20,12 @@ export default async function LogPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Log a workout</h1>
-        {/* Scan lives inside Log */}
-        <Link href="/scan" className="btn-ghost sm:px-5">
+        <h1 className="truncate text-2xl font-semibold">Log a workout</h1>
+        {/* Scan lives inside Log, and reads as a real action rather than a hint. */}
+        <Link
+          href="/scan"
+          className="btn flex-shrink-0 border border-brand/30 bg-brand/10 text-brand hover:bg-brand/15"
+        >
           <ScanLine className="h-4 w-4" />
           Scan
         </Link>
