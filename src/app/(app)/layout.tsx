@@ -20,7 +20,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen">
       <NavBar email={user.email ?? null} />
-      <div className="flex min-h-screen flex-1 flex-col">
+      {/* min-w-0 stops a wide child (the rest-timer row) from stretching the
+          whole column past the viewport, which made the page scroll sideways
+          and clipped the Scan button on a phone. */}
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-surface/80 px-5 py-2 backdrop-blur sm:px-8">
           <span className="text-xs text-muted">Weight units</span>
           <div className="flex items-center gap-2">

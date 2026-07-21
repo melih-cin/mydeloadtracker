@@ -30,6 +30,28 @@ tool, 30s server cap).
 | 18 | Logged | Insert OK | Text with exclamation point, auto-redirect 1.2s | Context card: set N today, e1RM vs best or PR; stay on screen |
 | 19 | Log error | Not signed in, DB error | Bare red text | Same copy, in the card |
 
+## Measured latency
+
+Against the live production endpoint, signed in, from a browser. Frames were
+built by the same path the app uses (640px max dimension, JPEG quality 0.55,
+about 23KB each), so the payloads are representative. Percentiles are
+nearest-rank; at these sample sizes p95 is the slowest observed call.
+
+| Payload | n | min | p50 | p95 | max |
+|---------|---|-----|-----|-----|-----|
+| 1 photo | 10 | 5.5s | **6.0s** | **7.6s** | 7.6s |
+| 8 frames | 10 | 5.5s | **7.4s** | **9.0s** | 9.0s |
+| 16 frames | 8 | 7.6s | **8.4s** | **10.7s** | 10.7s |
+
+Every call succeeded and detected the bar. A recorded set sends between 8 and
+16 frames (the buffer halves at 16), so the real recorded-set p50 sits between
+7.4s and 8.4s. The photo path meets the 8s target at p50 and p95; the recorded
+set meets it at p50 only.
+
+Caveat: latency was measured by repeating one real barbell photo, so it
+reflects payload size and output length honestly, but says nothing about
+rep-counting accuracy on genuine motion.
+
 Data notes:
 - Weight semantics: total bar weight (matches weight-semantics.ts for barbell).
 - Stored shape identical to manual logging: canonical kg via toKg, reps int,

@@ -717,7 +717,8 @@ export function BarScanner({ exercises, units }: { exercises: Exercise[]; units:
               {/* Weight and reps, big enough to film */}
               <div className="grid grid-cols-2 gap-3">
                 <div className={`rounded-xl p-3 ${review.weight ? "bg-warning/10" : "bg-surface-2"}`}>
-                  <span className="micro">Weight ({units}), total on the bar</span>
+                  {/* One line, so this tile matches the reps tile's height. */}
+                  <span className="micro">Total on bar ({units})</span>
                   {editing === "weight" ? (
                     <input
                       autoFocus
