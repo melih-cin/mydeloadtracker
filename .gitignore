@@ -45,3 +45,4 @@ docs/YC_APPLICATION.md
 .claude/settings.local.json
 .claude/launch.json
 .env*
+CLAUDE.local.md
